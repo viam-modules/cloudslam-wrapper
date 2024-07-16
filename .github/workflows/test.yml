@@ -1,0 +1,61 @@
+name: Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      GO_MODULE_PRIVATE_KEY:
+        required: true
+
+jobs:
+  build_and_test:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: [ubuntu-latest]
+            image: ghcr.io/viamrobotics/rdk-devenv:amd64
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+    env:
+      os: ${{contains(matrix.runner, 'ubuntu') && 'linux' || contains(matrix.runner, 'macos') && 'macos' || 'unknown'}}
+      GOOS: ${{contains(matrix.runner, 'ubuntu') && 'linux' || contains(matrix.runner, 'macos') && 'darwin' || 'unknown'}}
+      GOARCH: ${{ matrix.arch }}
+    timeout-minutes: 45
+    steps:
+
+    - name: Check out main branch code
+      if: github.event_name != 'pull_request_target'
+      uses: actions/checkout@v3
+
+    - name: Check out PR branch code
+      if: github.event_name == 'pull_request_target'
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: apt update
+      run: |
+        apt-get update
+
+    - name: Verify no uncommitted changes from make lint
+      run: |
+        git init
+        git add .
+        chown -R testbot:testbot .
+        sudo -u testbot bash -lc 'make lint'
+
+        if [ -n "$GEN_DIFF" ]; then
+            echo '"make lint" resulted in changes not in git' 1>&2
+            git status
+            exit 1
+        fi
+
+    - name: make setup
+      run: |
+        sudo -u testbot bash -lc 'make setup'
+
+    - name: make build
+      run: |
+        sudo -u testbot bash -lc 'make build'

@@ -1,0 +1,19 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+
+*~
+*#
+*.#*
+*.DS_Store
+*.swp
+
+# Generated files and folders
+grpc/
+bin/
+build/
+
+# Code editor settings
+.vscode
