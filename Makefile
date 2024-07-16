@@ -1,3 +1,4 @@
+BIN_OUTPUT_PATH = bin/$(shell uname -s)-$(shell uname -m)
 TOOL_BIN = bin/gotools/$(shell uname -s)-$(shell uname -m)
 COMMON_LDFLAGS = -s -w #-X 'go.viam.com/rdk/config.Version=${TAG_VERSION}' -X 'go.viam.com/rdk/config.GitRevision=${GIT_REVISION}' -X 'go.viam.com/rdk/config.DateCompiled=${DATE_COMPILED}'
 LDFLAGS = -ldflags "-extld=$(shell pwd)/etc/ld_wrapper.sh $(COMMON_LDFLAGS)"
