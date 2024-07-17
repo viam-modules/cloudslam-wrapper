@@ -17,5 +17,3 @@ on:
 jobs:
   test:
     uses: viam-modules/cloudslam-wrapper/.github/workflows/test.yml@main
-
-  

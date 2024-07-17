@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
@@ -18,6 +17,7 @@ import (
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/rdk/spatialmath"
+	"go.viam.com/rdk/utils"
 	"go.viam.com/utils/rpc"
 )
 
@@ -54,30 +54,32 @@ type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	logger         logging.Logger
-	cancelCtx      context.Context
-	cancelFunc     func()
-	slamService    slam.Service
-	APIKey         string
-	APIKeyID       string
-	clientConn     rpc.ClientConn
-	VIAMVersion    string
-	SLAMVersion    string
+	slamService slam.Service // the slam service that cloudslam will wrap
+	APIKey      string       // an API Key is needed to connect to app and use app related features. must be a location owner or greater
+	APIKeyID    string
+	// these define which robot/location/org we want to upload the map to. the API key should be defined for this location/org
 	RobotID        string
 	PartID         string
 	LocationID     string
 	OrganizationID string
+	VIAMVersion    string // optional cloudslam setting, describes which viam-server appimage to use(stable/latest/pr/pinned)
+	SLAMVersion    string // optional cloudslam setting, describes which cartographer appimage to use(stable/latest/pr/pinned)
 	MSFreq         float64
 	LidarFreq      float64
 	defaultpcd     []byte
-	httpClient     *http.Client
-	baseURL        string
 
+	// app client fields
+	baseURL       string         // defines which app to connect to(currently only prod)
+	clientConn    rpc.ClientConn // connection used for the app clients
 	csClient      pbCloudSLAM.CloudSLAMServiceClient
 	packageClient pbPackage.PackageServiceClient
 	syncClient    pbDataSync.DataSyncServiceClient
+	httpClient    *http.Client // used for downloading pcds of the current cloudslam session
 
-	activeBackgroundWorkers sync.WaitGroup
+	workers    utils.StoppableWorkers
+	logger     logging.Logger
+	cancelCtx  context.Context
+	cancelFunc func()
 }
 
 type cloudslamSensorInfo struct {
@@ -151,11 +153,22 @@ func newSLAM(
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	wrapper := &cloudslamWrapper{
-		baseURL: "https://app.viam.com", APIKey: newConf.APIKey, APIKeyID: newConf.APIKeyID,
-		slamService: wrappedSLAM, VIAMVersion: viamVersion, MSFreq: msFreq, LidarFreq: lidarFreq,
-		SLAMVersion: slamVersion, logger: logger, cancelCtx: cancelCtx, cancelFunc: cancel,
-		RobotID: newConf.RobotID, LocationID: newConf.LocationID, OrganizationID: newConf.OrganizationID, PartID: newConf.PartID,
-		httpClient: &http.Client{},
+		baseURL:        "https://app.viam.com",
+		APIKey:         newConf.APIKey,
+		APIKeyID:       newConf.APIKeyID,
+		slamService:    wrappedSLAM,
+		VIAMVersion:    viamVersion,
+		SLAMVersion:    slamVersion,
+		MSFreq:         msFreq,
+		LidarFreq:      lidarFreq,
+		logger:         logger,
+		cancelCtx:      cancelCtx,
+		cancelFunc:     cancel,
+		RobotID:        newConf.RobotID,
+		LocationID:     newConf.LocationID,
+		OrganizationID: newConf.OrganizationID,
+		PartID:         newConf.PartID,
+		httpClient:     &http.Client{},
 	}
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
@@ -171,14 +184,12 @@ func newSLAM(
 		return nil, err
 	}
 
-	// wrapper.activeBackgroundWorkers.Add(1)
-	// utils.PanicCapturingGo(wrapper.activeMappingSessionThread)
+	// wrapper.activeMappingSessionThread()
 
 	return wrapper, nil
 }
 
 func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, error) {
-
 	return nil, grpc.UnimplementedError
 }
 
@@ -197,7 +208,9 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 	svc.cancelFunc()
-	svc.activeBackgroundWorkers.Wait()
+	if svc.workers != nil {
+		svc.workers.Stop()
+	}
 	if svc.clientConn != nil {
 		return svc.clientConn.Close()
 	}

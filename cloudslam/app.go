@@ -13,7 +13,7 @@ import (
 	"go.viam.com/utils/rpc"
 )
 
-// CreateNewGRPCClient creates a new grpc cloud configured to communicate with the robot service based on the cloud config given.
+// CreateCloudSLAMClient creates a new grpc cloud configured to communicate with the robot service based on the cloud config given.
 func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
 	u, err := url.Parse(svc.baseURL + ":443")
 	if err != nil {
@@ -36,9 +36,9 @@ func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
 		return err
 	}
 
-	svc.csClient = NewCloudSLAMClientFromConn(conn)
-	svc.syncClient = NewDataSyncClientFronConn(conn)
-	svc.packageClient = NewPackageClientFromConn(conn)
+	svc.csClient = pbCloudSLAM.NewCloudSLAMServiceClient(conn)
+	svc.syncClient = pbDataSync.NewDataSyncServiceClient(conn)
+	svc.packageClient = pbPackage.NewPackageServiceClient(conn)
 	svc.clientConn = conn
 	return nil
 }
@@ -55,8 +55,8 @@ func NewPackageClientFromConn(conn rpc.ClientConn) pbPackage.PackageServiceClien
 	return c
 }
 
-// NewDataSyncClientFronConn creates a new DataSyncClient.
-func NewDataSyncClientFronConn(conn rpc.ClientConn) pbDataSync.DataSyncServiceClient {
+// NewDataSyncClientFromConn creates a new DataSyncClient.
+func NewDataSyncClientFromConn(conn rpc.ClientConn) pbDataSync.DataSyncServiceClient {
 	c := pbDataSync.NewDataSyncServiceClient(conn)
 	return c
 }
