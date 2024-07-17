@@ -52,10 +52,6 @@ jobs:
             exit 1
         fi
 
-    - name: make setup
-      run: |
-        sudo -u testbot bash -lc 'make setup'
-
     - name: make build
       run: |
         sudo -u testbot bash -lc 'make build'

@@ -32,7 +32,7 @@ const (
 	mapRefreshRate   = 1 / 5. // Hz
 )
 
-// Model is the model triplet for the cloudslam wrapper. viam:cloudslam-wrapper:cloudslam
+// Model is the model triplet for the cloudslam wrapper.
 var Model = resource.NewModel("viam", "cloudslam-wrapper", "cloudslam")
 
 // Config is the config for cloudslam.

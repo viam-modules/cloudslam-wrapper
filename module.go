@@ -2,13 +2,14 @@
 package main
 
 import (
-	"cloudslam-module/cloudslam"
 	"context"
 
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/module"
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/utils"
+
+	"cloudslam-module/cloudslam"
 )
 
 func main() {
