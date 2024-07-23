@@ -20,18 +20,14 @@ func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
 		return err
 	}
 
-	dialOpts := make([]rpc.DialOption, 0, 2)
-	// Only add credentials when secret is set.
-
-	dialOpts = append(dialOpts, rpc.WithEntityCredentials(
-		svc.APIKeyID,
+	opts := rpc.WithEntityCredentials(
+		svc.apiKeyID,
 		rpc.Credentials{
 			Type:    rpc.CredentialsTypeAPIKey,
-			Payload: svc.APIKey,
-		}),
-	)
+			Payload: svc.apiKey,
+		})
 
-	conn, err := rpc.DialDirectGRPC(svc.cancelCtx, u.Host, svc.logger.AsZap(), dialOpts...)
+	conn, err := rpc.DialDirectGRPC(svc.cancelCtx, u.Host, svc.logger.AsZap(), opts)
 	if err != nil {
 		return err
 	}
@@ -43,24 +39,6 @@ func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
 	return nil
 }
 
-// NewCloudSLAMClientFromConn creates a new CloudSLAMClient.
-func NewCloudSLAMClientFromConn(conn rpc.ClientConn) pbCloudSLAM.CloudSLAMServiceClient {
-	c := pbCloudSLAM.NewCloudSLAMServiceClient(conn)
-	return c
-}
-
-// NewPackageClientFromConn creates a new PackageClient.
-func NewPackageClientFromConn(conn rpc.ClientConn) pbPackage.PackageServiceClient {
-	c := pbPackage.NewPackageServiceClient(conn)
-	return c
-}
-
-// NewDataSyncClientFromConn creates a new DataSyncClient.
-func NewDataSyncClientFromConn(conn rpc.ClientConn) pbDataSync.DataSyncServiceClient {
-	c := pbDataSync.NewDataSyncServiceClient(conn)
-	return c
-}
-
 // getDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
 func (svc *cloudslamWrapper) getDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
@@ -69,9 +47,9 @@ func (svc *cloudslamWrapper) getDataFromHTTP(ctx context.Context, dataURL string
 	}
 	// linter wants us to use Key_id and Key
 	//nolint:canonicalheader
-	req.Header.Add("key_id", svc.APIKeyID)
+	req.Header.Add("key_id", svc.apiKeyID)
 	//nolint:canonicalheader
-	req.Header.Add("key", svc.APIKey)
+	req.Header.Add("key", svc.apiKey)
 
 	res, err := svc.httpClient.Do(req)
 	if err != nil {

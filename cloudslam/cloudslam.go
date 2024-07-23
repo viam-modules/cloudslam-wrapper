@@ -55,17 +55,17 @@ type cloudslamWrapper struct {
 	resource.AlwaysRebuild
 
 	slamService slam.Service // the slam service that cloudslam will wrap
-	APIKey      string       // an API Key is needed to connect to app and use app related features. must be a location owner or greater
-	APIKeyID    string
+	apiKey      string       // an API Key is needed to connect to app and use app related features. must be a location owner or greater
+	apiKeyID    string
 	// these define which robot/location/org we want to upload the map to. the API key should be defined for this location/org
-	RobotID        string
-	PartID         string
-	LocationID     string
-	OrganizationID string
-	VIAMVersion    string // optional cloudslam setting, describes which viam-server appimage to use(stable/latest/pr/pinned)
-	SLAMVersion    string // optional cloudslam setting, describes which cartographer appimage to use(stable/latest/pr/pinned)
-	MSFreq         float64
-	LidarFreq      float64
+	robotID        string
+	partID         string
+	locationID     string
+	organizationID string
+	viamVersion    string // optional cloudslam setting, describes which viam-server appimage to use(stable/latest/pr/pinned)
+	slamVersion    string // optional cloudslam setting, describes which cartographer appimage to use(stable/latest/pr/pinned)
+	msFreq         float64
+	lidarFreq      float64
 	defaultpcd     []byte
 
 	// app client fields
@@ -154,20 +154,20 @@ func newSLAM(
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	wrapper := &cloudslamWrapper{
 		baseURL:        "https://app.viam.com",
-		APIKey:         newConf.APIKey,
-		APIKeyID:       newConf.APIKeyID,
+		apiKey:         newConf.APIKey,
+		apiKeyID:       newConf.APIKeyID,
 		slamService:    wrappedSLAM,
-		VIAMVersion:    viamVersion,
-		SLAMVersion:    slamVersion,
-		MSFreq:         msFreq,
-		LidarFreq:      lidarFreq,
+		viamVersion:    viamVersion,
+		slamVersion:    slamVersion,
+		msFreq:         msFreq,
+		lidarFreq:      lidarFreq,
 		logger:         logger,
 		cancelCtx:      cancelCtx,
 		cancelFunc:     cancel,
-		RobotID:        newConf.RobotID,
-		LocationID:     newConf.LocationID,
-		OrganizationID: newConf.OrganizationID,
-		PartID:         newConf.PartID,
+		robotID:        newConf.RobotID,
+		locationID:     newConf.LocationID,
+		organizationID: newConf.OrganizationID,
+		partID:         newConf.PartID,
 		httpClient:     &http.Client{},
 	}
 
