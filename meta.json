@@ -1,0 +1,13 @@
+{
+  "module_id": "viam:cloudslam-wrapper",
+  "visibility": "private",
+  "url": "https://github.com/viam-modules/cloudslam-wrapper",
+  "description": "A SLAM service that interacts with cloudslam",
+  "models": [
+    {
+      "api": "rdk:service:slam",
+      "model": "viam:cloudslam-wrapper:cloudslam"
+    }
+  ],
+  "entrypoint": "cloudslam-wrapper"
+}

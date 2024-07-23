@@ -1,0 +1,19 @@
+name: Build and Publish Latest
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'main' ]
+    paths-ignore:
+      - 'README.md'
+
+# To test workflow updates you need to work in a branch directly on viam-modules/cloudslam-wrapper
+# and tag your working branch instead of @main in any viam-modules/cloudslam-wrapper "uses" below.
+# Don't forget to tag back to @main before merge.
+
+jobs:
+  test:
+    uses: viam-modules/cloudslam-wrapper/.github/workflows/test.yml@main
