@@ -40,6 +40,9 @@ func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
 }
 
 // getDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
+// will remove nolint in the next pr when this function gets used to retrieve pcds
+//
+//nolint:unused
 func (svc *cloudslamWrapper) getDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {

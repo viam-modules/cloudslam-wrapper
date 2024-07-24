@@ -1,4 +1,4 @@
-module cloudslam-module
+module github.com/viam-modules/cloudslam-wrapper
 
 go 1.21.9
 

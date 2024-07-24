@@ -69,7 +69,7 @@ type cloudslamWrapper struct {
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
-	apiKey      string                 // an API Key is needed to connect to app and use app related features. must be a location owner or greater
+	apiKey      string                 // a location owner API Key is needed to connect to app and use app related features
 	apiKeyID    string
 	// these define which robot/location/org we want to upload the map to. the API key should be defined for this location/org
 	robotID        string
