@@ -4,9 +4,13 @@ package cloudslam
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
@@ -19,6 +23,8 @@ import (
 	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/rdk/utils"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -54,8 +60,16 @@ type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	slamService slam.Service // the slam service that cloudslam will wrap
-	apiKey      string       // an API Key is needed to connect to app and use app related features. must be a location owner or greater
+	mu        sync.RWMutex
+	activeJob string
+	// muPos     sync.RWMutex
+	lastPos spatialmath.Pose
+	// muPCD     sync.RWMutex
+	// lastPCD   string
+
+	slamService slam.Service           // the slam service that cloudslam will wrap
+	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
+	apiKey      string                 // an API Key is needed to connect to app and use app related features. must be a location owner or greater
 	apiKeyID    string
 	// these define which robot/location/org we want to upload the map to. the API key should be defined for this location/org
 	robotID        string
@@ -151,8 +165,15 @@ func newSLAM(
 		msFreq = defaultMSFreq
 	}
 
+	props, err := wrappedSLAM.Properties(ctx)
+	if err != nil {
+		return nil, err
+	}
+	csSensors := sensorInfoToCSSensorInfo(props.SensorInfo, msFreq, lidarFreq)
+
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	wrapper := &cloudslamWrapper{
+		Named:          conf.ResourceName().AsNamed(),
 		baseURL:        "https://app.viam.com",
 		apiKey:         newConf.APIKey,
 		apiKeyID:       newConf.APIKeyID,
@@ -169,6 +190,8 @@ func newSLAM(
 		organizationID: newConf.OrganizationID,
 		partID:         newConf.PartID,
 		httpClient:     &http.Client{},
+		lastPos:        spatialmath.NewZeroPose(),
+		sensors:        csSensors,
 	}
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
@@ -190,7 +213,12 @@ func newSLAM(
 }
 
 func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, error) {
-	return nil, grpc.UnimplementedError
+	// adding the lock once we start requesting positions from app(future pr)
+	// svc.muPos.RLock()
+	currPos := svc.lastPos
+	// svc.muPos.RUnlock()
+
+	return currPos, nil
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
@@ -219,9 +247,107 @@ func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	resp := map[string]interface{}{}
+	if name, ok := req[startJobKey]; ok {
+		jobID, err := svc.StartJob(svc.cancelCtx, name.(string))
+		if err != nil {
+			return nil, err
+		}
+		svc.mu.Lock()
+		svc.activeJob = jobID
+		svc.mu.Unlock()
+		// svc.muPos.Lock()
+		// svc.lastPos = spatialmath.NewZeroPose()
+		// svc.muPos.Unlock()
+		// svc.muPCD.Lock()
+		// svc.lastPCD = ""
+		// svc.muPCD.Unlock()
+		resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
+	}
+	if _, ok := req[stopJobKey]; ok {
+		packageURL, err := svc.StopJob(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp[stopJobKey] = "Job completed, find your map at " + packageURL
+	}
 	return resp, nil
 }
 
+// StopJob stops the current active cloudslam job.
+func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
+	// grab the active job but do not clear it from the module. that way users can still see the final map on the robot
+	svc.mu.RLock()
+	currJob := svc.activeJob
+	svc.mu.RUnlock()
+	if currJob == "" {
+		return "", errors.New("no active jobs")
+	}
+
+	req := &pbCloudSLAM.StopMappingSessionRequest{SessionId: currJob}
+	resp, err := svc.csClient.StopMappingSession(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	packageName := strings.Split(resp.GetPackageId(), "/")[1]
+	packageURL := svc.baseURL + "/robots?name=" + packageName + "&version=" + resp.GetVersion()
+	return packageURL, nil
+}
+
+// StartJob starts a cloudslam job with the requested map name. Currently assumes a set of config parameters.
+func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (string, error) {
+	starttime := timestamppb.New(time.Now())
+	interval := pbCloudSLAM.CaptureInterval{StartTime: starttime}
+	configParams, err := structpb.NewStruct(map[string]any{
+		"attributes": map[string]any{
+			"config_params": map[string]any{
+				"mode":             "2d",
+				"min_range_meters": "0.2",
+				"max_range_meters": "25",
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	req := &pbCloudSLAM.StartMappingSessionRequest{
+		SlamVersion: svc.slamVersion, ViamServerVersion: svc.viamVersion, MapName: mapName, OrganizationId: svc.organizationID,
+		LocationId: svc.locationID, RobotId: svc.robotID, CaptureInterval: &interval, Sensors: svc.sensorInfoToProto(), SlamConfig: configParams,
+	}
+	resp, err := svc.csClient.StartMappingSession(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.GetSessionId(), nil
+}
+
+func sensorInfoToCSSensorInfo(sensors []slam.SensorInfo, msFreq, cameraFreq float64) []*cloudslamSensorInfo {
+	sensorsCS := []*cloudslamSensorInfo{}
+	for _, sensor := range sensors {
+		var freq float64
+		if sensor.Type.String() == slam.SensorTypeCamera.String() {
+			freq = cameraFreq
+		} else {
+			freq = msFreq
+		}
+		sensorsCS = append(sensorsCS, &cloudslamSensorInfo{name: sensor.Name, sensorType: sensor.Type, freq: freq})
+	}
+	return sensorsCS
+}
+
+func (svc *cloudslamWrapper) sensorInfoToProto() []*pbCloudSLAM.SensorInfo {
+	sensorsProto := []*pbCloudSLAM.SensorInfo{}
+	for _, sensor := range svc.sensors {
+		sensorsProto = append(sensorsProto,
+			&pbCloudSLAM.SensorInfo{
+				SourceComponentName: sensor.name,
+				Type:                sensor.sensorType.String(),
+				DataFrequencyHz:     strconv.FormatFloat(sensor.freq, 'f', -1, 64),
+			})
+	}
+	return sensorsProto
+}
+
+// toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
 func toChunkedFunc(b []byte) func() ([]byte, error) {
 	chunk := make([]byte, chunkSizeBytes)
 

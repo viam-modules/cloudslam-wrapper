@@ -12,6 +12,7 @@ require (
 	go.viam.com/api v0.1.317
 	go.viam.com/rdk v0.31.0
 	go.viam.com/utils v0.1.83
+	google.golang.org/protobuf v1.34.1
 	gotest.tools/gotestsum v1.12.0
 )
 
@@ -306,7 +307,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20231106174013-bbf56f31fb17 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231120223509-83a465c0220f // indirect
 	google.golang.org/grpc v1.61.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
