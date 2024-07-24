@@ -3,9 +3,6 @@ name: Test
 on:
   workflow_dispatch:
   workflow_call:
-    secrets:
-      GO_MODULE_PRIVATE_KEY:
-        required: true
 
 jobs:
   build_and_test:
