@@ -77,7 +77,7 @@ type cloudslamWrapper struct {
 	defaultpcd     []byte
 
 	// app clients for talking to app
-	app *appClient
+	app *AppClient
 
 	workers    utils.StoppableWorkers
 	logger     logging.Logger
@@ -266,7 +266,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 	}
 
 	req := &pbCloudSLAM.StopMappingSessionRequest{SessionId: currJob}
-	resp, err := svc.app.csClient.StopMappingSession(ctx, req)
+	resp, err := svc.app.CSClient.StopMappingSession(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -295,7 +295,7 @@ func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (stri
 		SlamVersion: svc.slamVersion, ViamServerVersion: svc.viamVersion, MapName: mapName, OrganizationId: svc.organizationID,
 		LocationId: svc.locationID, RobotId: svc.robotID, CaptureInterval: &interval, Sensors: svc.sensorInfoToProto(), SlamConfig: configParams,
 	}
-	resp, err := svc.app.csClient.StartMappingSession(ctx, req)
+	resp, err := svc.app.CSClient.StartMappingSession(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -304,8 +304,9 @@ func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (stri
 
 // sensorInfoToCSSensorInfo takes in a set of sensors from a SLAM algorithm's properties and adds each sensor's frequency to them
 // We have to do this because the current SLAM APIs do not include the sensor's configured frequency.
-// This currently assumes all configured cameras and movement sensors will use the same frequency as well, and that no other sensor types will be used
-// the cloudslamSensorInfo struct is used for both package creation and cloudslam
+// This currently assumes all configured cameras and movement sensors will use the same frequency as well,
+// and that no other sensor types will be used
+// the cloudslamSensorInfo struct is used for both package creation and cloudslam.
 func sensorInfoToCSSensorInfo(sensors []slam.SensorInfo, msFreq, cameraFreq float64) []*cloudslamSensorInfo {
 	sensorsCS := []*cloudslamSensorInfo{}
 	for _, sensor := range sensors {
@@ -320,7 +321,7 @@ func sensorInfoToCSSensorInfo(sensors []slam.SensorInfo, msFreq, cameraFreq floa
 	return sensorsCS
 }
 
-// takes a set of slam sensors and converts them into proto messages for cloudslam
+// takes a set of slam sensors and converts them into proto messages for cloudslam.
 func (svc *cloudslamWrapper) sensorInfoToProto() []*pbCloudSLAM.SensorInfo {
 	sensorsProto := []*pbCloudSLAM.SensorInfo{}
 	for _, sensor := range svc.sensors {

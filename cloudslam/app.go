@@ -14,20 +14,21 @@ import (
 	"go.viam.com/utils/rpc"
 )
 
-type appClient struct {
+// AppClient contains all of the client connections to app.
+type AppClient struct {
 	apiKey   string // a location owner API Key is needed to connect to app and use app related features
 	apiKeyID string
 	// app client fields
 	baseURL       string         // defines which app to connect to(currently only prod)
 	clientConn    rpc.ClientConn // connection used for the app clients
-	csClient      pbCloudSLAM.CloudSLAMServiceClient
-	packageClient pbPackage.PackageServiceClient
-	syncClient    pbDataSync.DataSyncServiceClient
-	httpClient    *http.Client // used for downloading pcds of the current cloudslam session
+	CSClient      pbCloudSLAM.CloudSLAMServiceClient
+	PackageClient pbPackage.PackageServiceClient
+	SyncClient    pbDataSync.DataSyncServiceClient
+	HTTPClient    *http.Client // used for downloading pcds of the current cloudslam session
 }
 
 // CreateCloudSLAMClient creates a new grpc cloud configured to communicate with the robot service based on the cloud config given.
-func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string, logger logging.Logger) (*appClient, error) {
+func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string, logger logging.Logger) (*AppClient, error) {
 	u, err := url.Parse(baseURL + ":443")
 	if err != nil {
 		return nil, err
@@ -44,21 +45,23 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 	if err != nil {
 		return nil, err
 	}
-	return &appClient{apiKey: apiKey,
+	return &AppClient{
+		apiKey:        apiKey,
 		apiKeyID:      apiKeyID,
 		baseURL:       baseURL,
 		clientConn:    conn,
-		csClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
-		syncClient:    pbDataSync.NewDataSyncServiceClient(conn),
-		packageClient: pbPackage.NewPackageServiceClient(conn),
+		CSClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
+		SyncClient:    pbDataSync.NewDataSyncServiceClient(conn),
+		PackageClient: pbPackage.NewPackageServiceClient(conn),
+		HTTPClient:    &http.Client{},
 	}, nil
 }
 
-// getDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
+// GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
 // will remove nolint in the next pr when this function gets used to retrieve pcds
 //
-//nolint:unused
-func (app *appClient) getDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
+
+func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {
 		return nil, err
@@ -69,7 +72,7 @@ func (app *appClient) getDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	//nolint:canonicalheader
 	req.Header.Add("key", app.apiKey)
 
-	res, err := app.httpClient.Do(req)
+	res, err := app.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +82,7 @@ func (app *appClient) getDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	return io.ReadAll(res.Body)
 }
 
-func (app *appClient) Close() error {
+// Close closes the app clients.
+func (app *AppClient) Close() error {
 	return app.clientConn.Close()
 }
