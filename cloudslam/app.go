@@ -10,51 +10,66 @@ import (
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	pbDataSync "go.viam.com/api/app/datasync/v1"
 	pbPackage "go.viam.com/api/app/packages/v1"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
 )
 
+type appClient struct {
+	apiKey   string // a location owner API Key is needed to connect to app and use app related features
+	apiKeyID string
+	// app client fields
+	baseURL       string         // defines which app to connect to(currently only prod)
+	clientConn    rpc.ClientConn // connection used for the app clients
+	csClient      pbCloudSLAM.CloudSLAMServiceClient
+	packageClient pbPackage.PackageServiceClient
+	syncClient    pbDataSync.DataSyncServiceClient
+	httpClient    *http.Client // used for downloading pcds of the current cloudslam session
+}
+
 // CreateCloudSLAMClient creates a new grpc cloud configured to communicate with the robot service based on the cloud config given.
-func (svc *cloudslamWrapper) CreateCloudSLAMClient() error {
-	u, err := url.Parse(svc.baseURL + ":443")
+func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string, logger logging.Logger) (*appClient, error) {
+	u, err := url.Parse(baseURL + ":443")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	opts := rpc.WithEntityCredentials(
-		svc.apiKeyID,
+		apiKeyID,
 		rpc.Credentials{
 			Type:    rpc.CredentialsTypeAPIKey,
-			Payload: svc.apiKey,
+			Payload: apiKey,
 		})
 
-	conn, err := rpc.DialDirectGRPC(svc.cancelCtx, u.Host, svc.logger.AsZap(), opts)
+	conn, err := rpc.DialDirectGRPC(ctx, u.Host, logger.AsZap(), opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	svc.csClient = pbCloudSLAM.NewCloudSLAMServiceClient(conn)
-	svc.syncClient = pbDataSync.NewDataSyncServiceClient(conn)
-	svc.packageClient = pbPackage.NewPackageServiceClient(conn)
-	svc.clientConn = conn
-	return nil
+	return &appClient{apiKey: apiKey,
+		apiKeyID:      apiKeyID,
+		baseURL:       baseURL,
+		clientConn:    conn,
+		csClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
+		syncClient:    pbDataSync.NewDataSyncServiceClient(conn),
+		packageClient: pbPackage.NewPackageServiceClient(conn),
+	}, nil
 }
 
 // getDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
 // will remove nolint in the next pr when this function gets used to retrieve pcds
 //
 //nolint:unused
-func (svc *cloudslamWrapper) getDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
+func (app *appClient) getDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	// linter wants us to use Key_id and Key
 	//nolint:canonicalheader
-	req.Header.Add("key_id", svc.apiKeyID)
+	req.Header.Add("key_id", app.apiKeyID)
 	//nolint:canonicalheader
-	req.Header.Add("key", svc.apiKey)
+	req.Header.Add("key", app.apiKey)
 
-	res, err := svc.httpClient.Do(req)
+	res, err := app.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -62,4 +77,8 @@ func (svc *cloudslamWrapper) getDataFromHTTP(ctx context.Context, dataURL string
 	defer res.Body.Close()
 
 	return io.ReadAll(res.Body)
+}
+
+func (app *appClient) Close() error {
+	return app.clientConn.Close()
 }
