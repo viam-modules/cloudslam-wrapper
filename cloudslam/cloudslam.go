@@ -183,7 +183,6 @@ func newSLAM(
 		sensors:        csSensors,
 		app:            appClients,
 	}
-	// initPose := spatialmath.NewZeroPose()
 	wrapper.lastPose.Store(&initPose)
 	initJob := ""
 	wrapper.activeJob.Store(&initJob)
@@ -202,12 +201,7 @@ func newSLAM(
 }
 
 func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, error) {
-	// adding the lock once we start requesting positions from app(future pr)
-	// svc.muPos.RLock()
-	currPos := *svc.lastPose.Load()
-	// svc.muPos.RUnlock()
-
-	return currPos, nil
+	return *svc.lastPose.Load(), nil
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {

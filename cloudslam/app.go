@@ -60,7 +60,7 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 // GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
 // will remove nolint in the next pr when this function gets used to retrieve pcds
 //
-
+//nolint:unused
 func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {
