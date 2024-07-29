@@ -2,9 +2,9 @@
 package main
 
 import (
-	"cloudslam-module/cloudslam"
 	"context"
 
+	"github.com/viam-modules/cloudslam-wrapper/cloudslam"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/module"
 	"go.viam.com/rdk/services/slam"
