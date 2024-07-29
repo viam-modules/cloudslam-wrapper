@@ -53,7 +53,8 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 		CSClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
 		SyncClient:    pbDataSync.NewDataSyncServiceClient(conn),
 		PackageClient: pbPackage.NewPackageServiceClient(conn),
-		HTTPClient:    &http.Client{},
+		// Disable keepalives makes each request only last for a single http GET request
+		HTTPClient: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
 	}, nil
 }
 
@@ -78,29 +79,9 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	return io.ReadAll(res.Body)
 }
 
-// GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
-func GetDataFromHTTP(ctx context.Context, dataURL, apiKeyID, apiKey string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{}
-	// linter wants us to use Key_id and Key
-	//nolint:canonicalheader
-	req.Header.Add("key_id", apiKeyID)
-	//nolint:canonicalheader
-	req.Header.Add("key", apiKey)
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	//nolint:errcheck
-	defer res.Body.Close()
-
-	return io.ReadAll(res.Body)
-}
-
 // Close closes the app clients.
 func (app *AppClient) Close() error {
+	// close any idle connections to prevent goleaks. Possibly redundant with DisableKeepAlives
+	app.HTTPClient.CloseIdleConnections()
 	return app.clientConn.Close()
 }

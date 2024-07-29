@@ -199,6 +199,7 @@ func newSLAM(
 	}
 	wrapper.defaultpcd = bytes
 
+	// check if the robot has an active job
 	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: wrapper.robotID}
 	resp, err := appClients.CSClient.GetActiveMappingSessionsForRobot(cancelCtx, reqActives)
 	if err != nil {
@@ -206,7 +207,6 @@ func newSLAM(
 	}
 	wrapper.activeJob.Store(&resp.SessionId)
 
-	// wrapper.activeMappingSessionThread()
 	wrapper.workers = utils.NewStoppableWorkers(wrapper.activeMappingSessionThread)
 
 	return wrapper, nil
@@ -219,7 +219,6 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		}
 
 		currJob := *svc.activeJob.Load()
-		svc.logger.Info(currJob)
 		// do nothing if no active jobs
 		if currJob == "" {
 			continue
@@ -237,7 +236,6 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 
 		svc.lastPose.Store(&currPose)
 		svc.lastPCD.Store(&resp.MapUrl)
-		svc.logger.Info(resp.MapUrl)
 	}
 }
 
@@ -246,20 +244,16 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
-	svc.logger.Info("yo get pcd")
-	currMap := "https://app.viam.com/files/44098535-f931-4dea-b250-ab6fbe25bd0d/ytxdza0q92/KjaVc1DhcZTdS98UCcTk3eIqP8nm0KBCj424lYXROiEeJSkcpuezum0ZbDpmTf1u"
-	if svc.cancelCtx.Err() != nil {
-		return nil, svc.cancelCtx.Err()
-	}
+	currMap := *svc.lastPCD.Load()
+
 	// return the placeholder map when no maps are present
 	if currMap == "" {
 		return toChunkedFunc(svc.defaultpcd), nil
 	}
-	pcdBytes, err := GetDataFromHTTP(ctx, currMap, svc.app.apiKeyID, svc.app.apiKey)
+	pcdBytes, err := svc.app.GetDataFromHTTP(ctx, currMap)
 	if err != nil {
 		return nil, err
 	}
-	svc.logger.Info("yo send pcd")
 	return toChunkedFunc(pcdBytes), nil
 }
 
@@ -272,13 +266,8 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 }
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
-	// initJob := ""
-	// svc.activeJob.Store(&initJob)
-	// svc.lastPose.Store(&initPose)
-	// svc.lastPCD.Store(&initPCDURL)
 	svc.cancelFunc()
 	svc.workers.Stop()
-
 	return svc.app.Close()
 }
 
