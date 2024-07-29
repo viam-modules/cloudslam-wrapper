@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	goutils "go.viam.com/utils"
+
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	"go.viam.com/rdk/grpc"
 	"go.viam.com/rdk/logging"
@@ -29,13 +31,14 @@ const (
 	localPackageKey  = "save-local-map"
 	timeFormat       = time.RFC3339
 	chunkSizeBytes   = 1 * 1024 * 1024
-	defaultLidarFreq = 5      // Hz
-	defaultMSFreq    = 20     // Hz
-	mapRefreshRate   = 1 / 5. // Hz
+	defaultLidarFreq = 5       // Hz
+	defaultMSFreq    = 20      // Hz
+	mapRefreshRate   = 1 / 0.2 // Seconds
 )
 
 var (
-	initPose = spatialmath.NewZeroPose()
+	initPose   = spatialmath.NewZeroPose()
+	initPCDURL = ""
 
 	// Model is the model triplet for the cloudslam wrapper.
 	Model = resource.NewModel("viam", "cloudslam-wrapper", "cloudslam")
@@ -62,7 +65,7 @@ type cloudslamWrapper struct {
 
 	activeJob atomic.Pointer[string]
 	lastPose  atomic.Pointer[spatialmath.Pose]
-	// lastPCD atomic.Pointer[string]
+	lastPCD   atomic.Pointer[string]
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
@@ -186,6 +189,7 @@ func newSLAM(
 	wrapper.lastPose.Store(&initPose)
 	initJob := ""
 	wrapper.activeJob.Store(&initJob)
+	wrapper.lastPCD.Store(&initPCDURL)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
 	path := filepath.Clean("./test2.pcd")
@@ -195,9 +199,46 @@ func newSLAM(
 	}
 	wrapper.defaultpcd = bytes
 
+	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: wrapper.robotID}
+	resp, err := appClients.CSClient.GetActiveMappingSessionsForRobot(cancelCtx, reqActives)
+	if err != nil {
+		return nil, err
+	}
+	wrapper.activeJob.Store(&resp.SessionId)
+
 	// wrapper.activeMappingSessionThread()
+	wrapper.workers = utils.NewStoppableWorkers(wrapper.activeMappingSessionThread)
 
 	return wrapper, nil
+}
+
+func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
+	for {
+		if !goutils.SelectContextOrWait(ctx, time.Duration(1000.*mapRefreshRate)*time.Millisecond) {
+			return
+		}
+
+		currJob := *svc.activeJob.Load()
+		svc.logger.Info(currJob)
+		// do nothing if no active jobs
+		if currJob == "" {
+			continue
+		}
+
+		// get the most recent pointcloud and position if there is an active job
+		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: currJob}
+		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
+		if err != nil {
+			svc.logger.Error(err)
+			continue
+		}
+
+		currPose := spatialmath.NewPoseFromProtobuf(resp.GetPose())
+
+		svc.lastPose.Store(&currPose)
+		svc.lastPCD.Store(&resp.MapUrl)
+		svc.logger.Info(resp.MapUrl)
+	}
 }
 
 func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, error) {
@@ -205,8 +246,21 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
+	svc.logger.Info("yo get pcd")
+	currMap := "https://app.viam.com/files/44098535-f931-4dea-b250-ab6fbe25bd0d/ytxdza0q92/KjaVc1DhcZTdS98UCcTk3eIqP8nm0KBCj424lYXROiEeJSkcpuezum0ZbDpmTf1u"
+	if svc.cancelCtx.Err() != nil {
+		return nil, svc.cancelCtx.Err()
+	}
 	// return the placeholder map when no maps are present
-	return toChunkedFunc(svc.defaultpcd), nil
+	if currMap == "" {
+		return toChunkedFunc(svc.defaultpcd), nil
+	}
+	pcdBytes, err := GetDataFromHTTP(ctx, currMap, svc.app.apiKeyID, svc.app.apiKey)
+	if err != nil {
+		return nil, err
+	}
+	svc.logger.Info("yo send pcd")
+	return toChunkedFunc(pcdBytes), nil
 }
 
 func (svc *cloudslamWrapper) InternalState(ctx context.Context) (func() ([]byte, error), error) {
@@ -218,14 +272,14 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 }
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
+	// initJob := ""
+	// svc.activeJob.Store(&initJob)
+	// svc.lastPose.Store(&initPose)
+	// svc.lastPCD.Store(&initPCDURL)
 	svc.cancelFunc()
-	if svc.workers != nil {
-		svc.workers.Stop()
-	}
-	if svc.app != nil {
-		return svc.app.Close()
-	}
-	return nil
+	svc.workers.Stop()
+
+	return svc.app.Close()
 }
 
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
@@ -237,7 +291,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		}
 		svc.activeJob.Store(&jobID)
 		svc.lastPose.Store(&initPose)
-		// svc.lastPCD.Store(&initPCDURL)
+		svc.lastPCD.Store(&initPCDURL)
 
 		resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
 	}

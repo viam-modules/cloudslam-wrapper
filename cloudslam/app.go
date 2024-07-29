@@ -58,9 +58,6 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 }
 
 // GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
-// will remove nolint in the next pr when this function gets used to retrieve pcds
-//
-//nolint:unused
 func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {
@@ -71,8 +68,29 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	req.Header.Add("key_id", app.apiKeyID)
 	//nolint:canonicalheader
 	req.Header.Add("key", app.apiKey)
-
 	res, err := app.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	//nolint:errcheck
+	defer res.Body.Close()
+
+	return io.ReadAll(res.Body)
+}
+
+// GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
+func GetDataFromHTTP(ctx context.Context, dataURL, apiKeyID, apiKey string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{}
+	// linter wants us to use Key_id and Key
+	//nolint:canonicalheader
+	req.Header.Add("key_id", apiKeyID)
+	//nolint:canonicalheader
+	req.Header.Add("key", apiKey)
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
