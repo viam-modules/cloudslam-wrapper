@@ -53,7 +53,10 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 		CSClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
 		SyncClient:    pbDataSync.NewDataSyncServiceClient(conn),
 		PackageClient: pbPackage.NewPackageServiceClient(conn),
-		// Disable keepalives makes each request only last for a single http GET request
+		// Disable keepalives makes each request only last for a single http GET request.
+		//  Doing this to prevent any active connections from causing goleaks when the viam-server shuts down.
+		// This might be redundant with CloseIdleConnections in Close(),
+		// and unsure if the extra cost of redoing the TLS handshake makes this change worth it
 		HTTPClient: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
 	}, nil
 }
