@@ -28,6 +28,7 @@ const (
 	robotMarkerRadius = 5    // radius of robot marker point
 )
 
+// uploadJpeg uploads a jpeg thumbnail of a pointcloud used for a slam map package
 func (svc *cloudslamWrapper) uploadJpeg(
 	ctx context.Context,
 	content *bytes.Buffer,
@@ -80,6 +81,7 @@ func (svc *cloudslamWrapper) uploadJpeg(
 	return res.GetFileId(), nil
 }
 
+// pcdToJpeg converts a pointcloud data into a jpeg image
 func pcdToJpeg(pcd []byte) (*bytes.Buffer, error) {
 	ppRM := NewParallelProjectionOntoXYWithRobotMarker(nil)
 	pc, err := pointcloud.ReadPCD(bytes.NewBuffer(pcd))
@@ -321,6 +323,7 @@ func readNextFileUploadFileChunk(f *bytes.Buffer) (*pbDataSync.FileData, error) 
 	return &pbDataSync.FileData{Data: byteArr}, nil
 }
 
+// getNextFileUploadRequest gets the next chunk of a file upload for data sync
 func getNextFileUploadRequest(ctx context.Context, f *bytes.Buffer) (*pbDataSync.FileUploadRequest, error) {
 	select {
 	case <-ctx.Done():
@@ -340,6 +343,7 @@ func getNextFileUploadRequest(ctx context.Context, f *bytes.Buffer) (*pbDataSync
 	}
 }
 
+// sendFIleUploadRequests sends a file upload to app in a series of chunks
 func sendFileUploadRequests(ctx context.Context, stream pbDataSync.DataSyncService_FileUploadClient, f *bytes.Buffer) error {
 	// Loop until there is no more content to be read from file.
 	for {

@@ -97,6 +97,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	return packageURL, nil
 }
 
+// sendPackageRequests sends the package to app
 func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_CreatePackageClient,
 	f *bytes.Buffer, packageInfo *pbPackage.PackageInfo,
 ) error {
@@ -135,6 +136,7 @@ func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_Cr
 	}
 }
 
+// getCreatePackageRequest creates a package request with a chunk of the package
 func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.CreatePackageRequest, error) {
 	select {
 	case <-ctx.Done():
@@ -154,6 +156,7 @@ func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.C
 	}
 }
 
+// readNextFileChunk gets a chunk of data from a buffer
 func readNextFileChunk(f *bytes.Buffer) ([]byte, error) {
 	byteArr := make([]byte, UploadChunkSize)
 	numBytesRead, err := f.Read(byteArr)
@@ -265,6 +268,7 @@ type SLAMFile struct {
 	name         string
 }
 
+// findPCD finds a pcd file in a list of slam files
 func findPCD(files []SLAMFile) ([]byte, error) {
 	for _, f := range files {
 		if f.slamFileType == PCDType {
