@@ -36,15 +36,16 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	if err != nil {
 		return "", err
 	}
-
+	// create a thumbnail preview of the map
 	jpeg, err := pcdToJpeg(pcd)
 	if err != nil {
 		return "", err
 	}
 
+	// grab the current time to mark the "version" of the slam map
 	endTime := time.Now()
 	packageVersion := strconv.FormatInt(endTime.Unix(), 10)
-
+	// upload a thumbnail preview of the map to app
 	thumbnailFileID, err := svc.uploadJpeg(ctx, jpeg, mapName, packageVersion)
 	if err != nil {
 		return "", err
@@ -93,6 +94,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 		return "", errs
 	}
 
+	// return a link for where to find the package
 	packageURL := svc.app.baseURL + "/robots?name=" + mapName + "&version=" + resp.GetVersion()
 	return packageURL, nil
 }
