@@ -53,14 +53,15 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 		CSClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
 		SyncClient:    pbDataSync.NewDataSyncServiceClient(conn),
 		PackageClient: pbPackage.NewPackageServiceClient(conn),
-		HTTPClient:    &http.Client{},
+		// Disable keepalives makes each request only last for a single http GET request.
+		//  Doing this to prevent any active connections from causing goleaks when the viam-server shuts down.
+		// This might be redundant with CloseIdleConnections in Close(),
+		// and unsure if the extra cost of redoing the TLS handshake makes this change worth it
+		HTTPClient: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
 	}, nil
 }
 
 // GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.
-// will remove nolint in the next pr when this function gets used to retrieve pcds
-//
-//nolint:unused
 func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
 	if err != nil {
@@ -71,7 +72,6 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	req.Header.Add("key_id", app.apiKeyID)
 	//nolint:canonicalheader
 	req.Header.Add("key", app.apiKey)
-
 	res, err := app.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -84,5 +84,7 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 
 // Close closes the app clients.
 func (app *AppClient) Close() error {
+	// close any idle connections to prevent goleaks. Possibly redundant with DisableKeepAlives
+	app.HTTPClient.CloseIdleConnections()
 	return app.clientConn.Close()
 }

@@ -19,23 +19,27 @@ import (
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/rdk/utils"
+	goutils "go.viam.com/utils"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	startJobKey      = "start"
-	stopJobKey       = "stop"
-	localPackageKey  = "save-local-map"
-	timeFormat       = time.RFC3339
-	chunkSizeBytes   = 1 * 1024 * 1024
-	defaultLidarFreq = 5      // Hz
-	defaultMSFreq    = 20     // Hz
-	mapRefreshRate   = 1 / 5. // Hz
+	startJobKey               = "start"
+	stopJobKey                = "stop"
+	localPackageKey           = "save-local-map"
+	timeFormat                = time.RFC3339
+	chunkSizeBytes            = 1 * 1024 * 1024
+	defaultPointCloudFilename = "./test2.pcd"
+	// numbers are derived from the current behavior of cartographer.
+	defaultLidarFreq = 5   // Hz
+	defaultMSFreq    = 20  // Hz
+	mapRefreshRate   = 5.0 // Seconds
 )
 
 var (
-	initPose = spatialmath.NewZeroPose()
+	initPose   = spatialmath.NewZeroPose()
+	initPCDURL = ""
 
 	// Model is the model triplet for the cloudslam wrapper.
 	Model = resource.NewModel("viam", "cloudslam-wrapper", "cloudslam")
@@ -60,9 +64,9 @@ type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	activeJob atomic.Pointer[string]
-	lastPose  atomic.Pointer[spatialmath.Pose]
-	// lastPCD atomic.Pointer[string]
+	activeJob         atomic.Pointer[string]
+	lastPose          atomic.Pointer[spatialmath.Pose]
+	lastPointCloudURL atomic.Pointer[string]
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
@@ -186,18 +190,53 @@ func newSLAM(
 	wrapper.lastPose.Store(&initPose)
 	initJob := ""
 	wrapper.activeJob.Store(&initJob)
+	wrapper.lastPointCloudURL.Store(&initPCDURL)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
-	path := filepath.Clean("./test2.pcd")
-	bytes, err := os.ReadFile(path)
+	wrapper.defaultpcd, err = os.ReadFile(filepath.Clean(defaultPointCloudFilename))
 	if err != nil {
 		return nil, err
 	}
-	wrapper.defaultpcd = bytes
 
-	// wrapper.activeMappingSessionThread()
+	// check if the robot has an active job
+	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: wrapper.robotID}
+	resp, err := appClients.CSClient.GetActiveMappingSessionsForRobot(cancelCtx, reqActives)
+	if err != nil {
+		return nil, err
+	}
+	wrapper.activeJob.Store(&resp.SessionId)
+
+	wrapper.workers = utils.NewStoppableWorkers(wrapper.activeMappingSessionThread)
 
 	return wrapper, nil
+}
+
+// activeMappingSessionThread polls app to retrieve the current map and pose of the cloudslam session.
+func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
+	for {
+		if !goutils.SelectContextOrWait(ctx, time.Duration(1000.*mapRefreshRate)*time.Millisecond) {
+			return
+		}
+
+		currJob := *svc.activeJob.Load()
+		// do nothing if no active jobs
+		if currJob == "" {
+			continue
+		}
+
+		// get the most recent pointcloud and position if there is an active job
+		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: currJob}
+		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
+		if err != nil {
+			svc.logger.Error(err)
+			continue
+		}
+
+		currPose := spatialmath.NewPoseFromProtobuf(resp.GetPose())
+
+		svc.lastPose.Store(&currPose)
+		svc.lastPointCloudURL.Store(&resp.MapUrl)
+	}
 }
 
 func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, error) {
@@ -205,8 +244,17 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
+	currMap := *svc.lastPointCloudURL.Load()
+
 	// return the placeholder map when no maps are present
-	return toChunkedFunc(svc.defaultpcd), nil
+	if currMap == "" {
+		return toChunkedFunc(svc.defaultpcd), nil
+	}
+	pcdBytes, err := svc.app.GetDataFromHTTP(ctx, currMap)
+	if err != nil {
+		return nil, err
+	}
+	return toChunkedFunc(pcdBytes), nil
 }
 
 func (svc *cloudslamWrapper) InternalState(ctx context.Context) (func() ([]byte, error), error) {
@@ -219,13 +267,8 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 	svc.cancelFunc()
-	if svc.workers != nil {
-		svc.workers.Stop()
-	}
-	if svc.app != nil {
-		return svc.app.Close()
-	}
-	return nil
+	svc.workers.Stop()
+	return svc.app.Close()
 }
 
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
@@ -237,7 +280,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		}
 		svc.activeJob.Store(&jobID)
 		svc.lastPose.Store(&initPose)
-		// svc.lastPCD.Store(&initPCDURL)
+		svc.lastPointCloudURL.Store(&initPCDURL)
 
 		resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
 	}
