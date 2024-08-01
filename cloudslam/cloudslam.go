@@ -25,11 +25,13 @@ import (
 )
 
 const (
-	startJobKey      = "start"
-	stopJobKey       = "stop"
-	localPackageKey  = "save-local-map"
-	timeFormat       = time.RFC3339
-	chunkSizeBytes   = 1 * 1024 * 1024
+	startJobKey               = "start"
+	stopJobKey                = "stop"
+	localPackageKey           = "save-local-map"
+	timeFormat                = time.RFC3339
+	chunkSizeBytes            = 1 * 1024 * 1024
+	defaultPointCloudFilename = "./test2.pcd"
+	// numbers are derived from the current behavior of cartographer.
 	defaultLidarFreq = 5   // Hz
 	defaultMSFreq    = 20  // Hz
 	mapRefreshRate   = 5.0 // Seconds
@@ -191,12 +193,10 @@ func newSLAM(
 	wrapper.lastPointCloudURL.Store(&initPCDURL)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
-	path := filepath.Clean("./test2.pcd")
-	bytes, err := os.ReadFile(path)
+	wrapper.defaultpcd, err = os.ReadFile(filepath.Clean(defaultPointCloudFilename))
 	if err != nil {
 		return nil, err
 	}
-	wrapper.defaultpcd = bytes
 
 	// check if the robot has an active job
 	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: wrapper.robotID}
@@ -211,6 +211,7 @@ func newSLAM(
 	return wrapper, nil
 }
 
+// activeMappingSessionThread polls app to retrieve the current map and pose of the cloudslam session.
 func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 	for {
 		if !goutils.SelectContextOrWait(ctx, time.Duration(1000.*mapRefreshRate)*time.Millisecond) {
