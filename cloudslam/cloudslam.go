@@ -292,11 +292,6 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		resp[stopJobKey] = "Job completed, find your map at " + packageURL
 	}
 	if packageName, ok := req[localPackageKey]; ok {
-		if svc.partID == "" {
-			resp[localPackageKey] = "must set robot_part_id in config to use this feature"
-			return resp, errors.New(resp[localPackageKey].(string))
-		}
-		svc.logger.Info("yo save")
 		packageURL, err := svc.UploadPackage(ctx, packageName.(string))
 		if err != nil {
 			return nil, err
@@ -384,7 +379,7 @@ func (svc *cloudslamWrapper) sensorInfoToProto() []*pbCloudSLAM.SensorInfo {
 	return sensorsProto
 }
 
-// ParseSensorsForPackage parses the sensors env variable into a list of sensor structs.
+// ParseSensorsForPackage parses the sensors list nto a list of sensor structs to add to the map package metadata.
 func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
 	sensorMetadata := []interface{}{}
 	for _, sensor := range svc.sensors {

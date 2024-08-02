@@ -27,11 +27,38 @@ const (
 // UploadPackage grabs the current pcd map and internal state of the cloud managed robot
 // and creates a package at the robots location using the CreatePackage API.
 func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) (string, error) {
+	if svc.partID == "" {
+		return "", errors.New("must set robot_part_id in config to use this feature")
+	}
+	// grab the current time to mark the "version" of the slam map
+	packageVersion := strconv.FormatInt(time.Now().Unix(), 10)
+
 	files, err := svc.GetMapsFromSLAM(ctx)
 	if err != nil {
 		return "", errors.Wrapf(err, "error getting maps")
 	}
 
+	thumbnailFileID, err := svc.createThumbnail(ctx, files, mapName, packageVersion)
+	if err != nil {
+		return "", err
+	}
+
+	// if any errors occur after this point, we will have an orphaned thumbnail uploaded to app.
+	// this is an acceptable behavior, but if we wanted to delete them then we need to add a data management client
+	// and use the thumbnailFileID to delete the thumbnail
+
+	err = svc.uploadArchive(ctx, files, mapName, thumbnailFileID, packageVersion)
+	if err != nil {
+		return "", err
+	}
+
+	// return a link for where to find the package
+	packageURL := svc.app.baseURL + "/robots?name=" + mapName + "&version=" + packageVersion
+	return packageURL, nil
+}
+
+// createThumbnail creates a jpeg image of the pointcloud map that acts as a thumbnail preview
+func (svc *cloudslamWrapper) createThumbnail(ctx context.Context, files []SLAMFile, mapName, versionTimestamp string) (string, error) {
 	pcd, err := findPCD(files)
 	if err != nil {
 		return "", err
@@ -42,23 +69,25 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 		return "", err
 	}
 
-	// grab the current time to mark the "version" of the slam map
-	endTime := time.Now()
-	packageVersion := strconv.FormatInt(endTime.Unix(), 10)
 	// upload a thumbnail preview of the map to app
-	thumbnailFileID, err := svc.uploadJpeg(ctx, jpeg, mapName, packageVersion)
+	thumbnailFileID, err := svc.uploadJpeg(ctx, jpeg, mapName, versionTimestamp)
 	if err != nil {
 		return "", err
 	}
+	return thumbnailFileID, nil
+}
+
+// uploadArchive creates a tar/archive of the SLAM map and uploads it to app using the package APIs
+func (svc *cloudslamWrapper) uploadArchive(ctx context.Context, files []SLAMFile, mapName, thumbnailFileID, packageVersion string) error {
 	myPackage, err := CreateArchive(files)
 	if err != nil {
-		return "", errors.Wrapf(err, "error creating gzip")
+		return errors.Wrapf(err, "error creating gzip")
 	}
 
 	// setup streaming client for request
 	stream, err := svc.app.PackageClient.CreatePackage(ctx)
 	if err != nil {
-		return "", errors.Wrapf(err, "error starting CreatePackage stream")
+		return errors.Wrapf(err, "error starting CreatePackage stream")
 	}
 	SLAMFile := []*pbPackage.FileInfo{}
 	for _, file := range files {
@@ -68,7 +97,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 
 	myMeta, err := svc.GetPackageMetadata(thumbnailFileID)
 	if err != nil {
-		return "", errors.Wrapf(err, "error creating Package Metadata")
+		return errors.Wrapf(err, "error creating Package Metadata")
 	}
 	packageInfo := pbPackage.PackageInfo{
 		OrganizationId: svc.organizationID,
@@ -86,41 +115,38 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	}
 
 	// close the stream and receive a response when finished
-	resp, err := stream.CloseAndRecv()
+	_, err = stream.CloseAndRecv()
 	if err != nil {
 		errs = multierr.Combine(errs, errors.Wrapf(err, "received error response while syncing package"))
 	}
 	if errs != nil {
-		return "", errs
+		return errs
 	}
-
-	// return a link for where to find the package
-	packageURL := svc.app.baseURL + "/robots?name=" + mapName + "&version=" + resp.GetVersion()
-	return packageURL, nil
+	return nil
 }
 
 // sendPackageRequests sends the package to app
 func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_CreatePackageClient,
 	f *bytes.Buffer, packageInfo *pbPackage.PackageInfo,
 ) error {
+	var err error
 	req := &pbPackage.CreatePackageRequest{
 		Package: &pbPackage.CreatePackageRequest_Info{Info: packageInfo},
 	}
 	// first send the metadata for the package
-	if err := stream.Send(req); err != nil {
+	if err = stream.Send(req); err != nil {
 		return errors.Wrapf(err, "sending metadata")
 	}
+	defer func() { err = multierr.Combine(err, stream.CloseSend()) }()
 
-	//nolint:errcheck
-	defer stream.CloseSend()
 	// Loop until there is no more content to be read from file.
 	for {
 		select {
 		case <-ctx.Done():
 			return context.Canceled
 		default:
-			// Get the next UploadRequest from the file.
-			uploadReq, err := getCreatePackageRequest(ctx, f)
+			// Get the next CreatePackageRequest from the file.
+			createPackageReq, err := getCreatePackageRequest(ctx, f)
 
 			// EOF means we've completed successfully.
 			if errors.Is(err, io.EOF) {
@@ -131,7 +157,7 @@ func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_Cr
 				return err
 			}
 
-			if err = stream.Send(uploadReq); err != nil {
+			if err = stream.Send(createPackageReq); err != nil {
 				return err
 			}
 		}
@@ -149,7 +175,7 @@ func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.C
 		if err != nil {
 			return nil, err
 		}
-		// Otherwise, return an UploadRequest and no error.
+		// Otherwise, return an CreatePackageRequest and no error.
 		return &pbPackage.CreatePackageRequest{
 			Package: &pbPackage.CreatePackageRequest_Contents{
 				Contents: next,
@@ -162,17 +188,19 @@ func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.C
 func readNextFileChunk(f *bytes.Buffer) ([]byte, error) {
 	byteArr := make([]byte, UploadChunkSize)
 	numBytesRead, err := f.Read(byteArr)
-	if numBytesRead < UploadChunkSize {
-		byteArr = byteArr[:numBytesRead]
-	}
 	if err != nil {
 		return nil, err
 	}
+	if numBytesRead < UploadChunkSize {
+		byteArr = byteArr[:numBytesRead]
+	}
+
 	return byteArr, nil
 }
 
 // CreateArchive creates a tar.gz with the desired set of files.
 func CreateArchive(files []SLAMFile) (*bytes.Buffer, error) {
+	var err error
 	// Create output buffer
 	out := new(bytes.Buffer)
 
@@ -182,15 +210,13 @@ func CreateArchive(files []SLAMFile) (*bytes.Buffer, error) {
 	// write to the gzip writer which in turn will write to
 	// the "out" writer
 	gw := gzip.NewWriter(out)
-	//nolint:errcheck
-	defer gw.Close()
+	defer func() { err = multierr.Combine(err, gw.Close()) }()
 	tw := tar.NewWriter(gw)
-	//nolint:errcheck
-	defer tw.Close()
+	defer func() { err = multierr.Combine(err, tw.Close()) }()
 
 	// Iterate over files and add them to the tar archive
 	for _, file := range files {
-		err := addToArchive(tw, file)
+		err = addToArchive(tw, file)
 		if err != nil {
 			return nil, errors.Wrapf(err, "adding file to archive")
 		}
