@@ -38,6 +38,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 		return "", errors.Wrapf(err, "error getting maps")
 	}
 
+	// see thumbnail.go for all of this code
 	thumbnailFileID, err := svc.createThumbnail(ctx, files, mapName, packageVersion)
 	if err != nil {
 		return "", err
@@ -55,26 +56,6 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	// return a link for where to find the package
 	packageURL := svc.app.baseURL + "/robots?name=" + mapName + "&version=" + packageVersion
 	return packageURL, nil
-}
-
-// createThumbnail creates a jpeg image of the pointcloud map that acts as a thumbnail preview
-func (svc *cloudslamWrapper) createThumbnail(ctx context.Context, files []SLAMFile, mapName, versionTimestamp string) (string, error) {
-	pcd, err := findPCD(files)
-	if err != nil {
-		return "", err
-	}
-	// create a thumbnail preview of the map
-	jpeg, err := pcdToJpeg(pcd)
-	if err != nil {
-		return "", err
-	}
-
-	// upload a thumbnail preview of the map to app
-	thumbnailFileID, err := svc.uploadJpeg(ctx, jpeg, mapName, versionTimestamp)
-	if err != nil {
-		return "", err
-	}
-	return thumbnailFileID, nil
 }
 
 // uploadArchive creates a tar/archive of the SLAM map and uploads it to app using the package APIs

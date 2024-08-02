@@ -28,6 +28,26 @@ const (
 	robotMarkerRadius = 5    // radius of robot marker point
 )
 
+// createThumbnail creates a jpeg image of the pointcloud map that acts as a thumbnail preview
+func (svc *cloudslamWrapper) createThumbnail(ctx context.Context, files []SLAMFile, mapName, versionTimestamp string) (string, error) {
+	pcd, err := findPCD(files)
+	if err != nil {
+		return "", err
+	}
+	// create a thumbnail preview of the map
+	jpeg, err := pcdToJpeg(pcd)
+	if err != nil {
+		return "", err
+	}
+
+	// upload a thumbnail preview of the map to app
+	thumbnailFileID, err := svc.uploadJpeg(ctx, jpeg, mapName, versionTimestamp)
+	if err != nil {
+		return "", err
+	}
+	return thumbnailFileID, nil
+}
+
 // uploadJpeg uploads a jpeg thumbnail of a pointcloud used for a slam map package
 func (svc *cloudslamWrapper) uploadJpeg(
 	ctx context.Context,
