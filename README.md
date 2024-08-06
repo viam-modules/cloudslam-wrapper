@@ -18,7 +18,7 @@ On the new service panel, copy and paste the following attribute template into y
    "api_key_id": "<location-api-key-id>",
    "organization_id": "<organization_id>",
    "location_id": "<location_id>",
-   "robot_id": "<robot_id>",
+   "machine_id": "<machine_id>",
 }
 ```
 
@@ -28,7 +28,7 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 
 | Name    | Type   | Required?    | Description |
 | ------- | ------ | ------------ | ----------- |
-| `slam_service` | string | **Required** | Name of the SLAM Service on the robot to use with cloudslam        |
+| `slam_service` | string | **Required** | Name of the SLAM Service on the machine to use with cloudslam        |
 | `api_key` | string | **Required**     | [location owner API key](https://docs.viam.com/cloud/rbac/#add-an-api-key) needed to use cloudslam apis        |
 | `api_key_id` | string | **Required**     | location owner API key id        |
 | `organization_id` | string | **Required**     | id string for your [organization](https://docs.viam.com/cloud/organizations/)        |
@@ -61,5 +61,5 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 ### Next steps - Using the cloudslam service
 To interact with a cloudslam mapping session, go to the `DoCommand` on the [Control tab](https://docs.viam.com/cloud/machines/#control) and select your cloudslam wrapper service from the dropdown. From here, you can use the following commands
 - {`"start": "<MAP_NAME>"`} will start a cloudslam mapping session using the configured SLAM service. If the request is successful the current map will appear in the cloudslam-wrapper's service card after ~1 minute
-- {`"stop": ""`} will stop an active cloudslam mapping session if one is running. The completed map can be found on the SLAM library tab of the robots page
-- {`"save-local-map": "<MAP_NAME>"`} will grab the current map from the configured SLAM service and upload it to your location, in the SLAM library tab of the robots page
+- {`"stop": ""`} will stop an active cloudslam mapping session if one is running. The completed map can be found on the SLAM library tab of the machines page
+- {`"save-local-map": "<MAP_NAME>"`} will grab the current map from the configured SLAM service and upload it to your location, in the SLAM library tab of the machines page
