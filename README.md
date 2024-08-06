@@ -7,7 +7,7 @@ Currently, only [Cartographer](https://docs.viam.com/services/slam/cartographer/
 ## Configure your cloudslam-wrapper
 
 Navigate to the [**CONFIGURE** tab](https://docs.viam.com/configure/) of your [machine](https://docs.viam.com/fleet/machines/) in [the Viam app](https://app.viam.com/).
-[Add <slam / cloudslam-wrapper> to your machine](https://docs.viam.com/configure/#services).
+[Add cloudslam-wrapper to your machine](https://docs.viam.com/configure/#services).
 
 On the new service panel, copy and paste the following attribute template into your SLAM’s attributes field:
 
@@ -24,7 +24,7 @@ On the new service panel, copy and paste the following attribute template into y
 
 ### Attributes
 
-The following attributes are available for `<INSERT MODEL TRIPLET>` <INSERT API NAME>s:
+The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 
 | Name    | Type   | Required?    | Description |
 | ------- | ------ | ------------ | ----------- |
