@@ -13,7 +13,7 @@ On the new service panel, copy and paste the following attribute template into y
 
 ```json
 {
-   "slam_service": ”<my-actual-slam-service>”,
+   "slam_service": "<slam-service-name>",
    "api_key": "<location-api-key>",
    "api_key_id": "<location-api-key-id>",
    "organization_id": "<organization_id>",
@@ -44,7 +44,7 @@ The following attributes are available for `<INSERT MODEL TRIPLET>` <INSERT API 
 
 ```json
 {
-  "slam_service": ”my-actual-slam-service”,
+  "slam_service": "my-actual-slam-service",
    "api_key": "location-api-key",
    "api_key_id": "location-api-key-id",
    "organization_id": "organization_id",
@@ -53,8 +53,8 @@ The following attributes are available for `<INSERT MODEL TRIPLET>` <INSERT API 
    "machine_part_id": "machine_part_id", 
    "camera_freq_hz": 5.0,
    "movement_sensor_freq_hz": 20.0, 
-   "slam_version": “stable”, 
-   "viam_version": “stable”, 
+   "slam_version": "stable", 
+   "viam_version": "stable", 
 }
 ```
 
