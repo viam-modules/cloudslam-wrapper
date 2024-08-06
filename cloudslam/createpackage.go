@@ -119,7 +119,6 @@ func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_Cr
 		return errors.Wrapf(err, "sending metadata")
 	}
 	defer func() { err = multierr.Combine(err, stream.CloseSend()) }()
-
 	// Loop until there is no more content to be read from file.
 	for {
 		select {

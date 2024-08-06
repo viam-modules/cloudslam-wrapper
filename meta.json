@@ -2,12 +2,17 @@
   "module_id": "viam:cloudslam-wrapper",
   "visibility": "private",
   "url": "https://github.com/viam-modules/cloudslam-wrapper",
-  "description": "A SLAM service that interacts with cloudslam",
+  "description": "A SLAM service that lets users interact with cloudslam",
   "models": [
     {
       "api": "rdk:service:slam",
       "model": "viam:cloudslam-wrapper:cloudslam"
     }
   ],
-  "entrypoint": "cloudslam-wrapper"
+  "build": {
+    "build": "make module",
+    "arch" : ["linux/amd64", "linux/arm64", "darwin/arm64"],
+    "path" : "bin/module.tar.gz"
+  },
+  "entrypoint": "bin/cloudslam-wrapper"
 }

@@ -4,9 +4,8 @@ package cloudslam
 import (
 	"bytes"
 	"context"
+	"embed"
 	"errors"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -30,7 +29,7 @@ const (
 	localPackageKey           = "save-local-map"
 	timeFormat                = time.RFC3339
 	chunkSizeBytes            = 1 * 1024 * 1024
-	defaultPointCloudFilename = "./test2.pcd"
+	defaultPointCloudFilename = "defaultpcd.pcd" // must match filename in embed.FS
 	// numbers are derived from the current behavior of cartographer.
 	defaultLidarFreq = 5   // Hz
 	defaultMSFreq    = 20  // Hz
@@ -40,6 +39,8 @@ const (
 var (
 	initPose   = spatialmath.NewZeroPose()
 	initPCDURL = ""
+	//go:embed defaultpcd.pcd
+	f embed.FS
 
 	// Model is the model triplet for the cloudslam wrapper.
 	Model = resource.NewModel("viam", "cloudslam-wrapper", "cloudslam")
@@ -193,7 +194,7 @@ func newSLAM(
 	wrapper.lastPointCloudURL.Store(&initPCDURL)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
-	wrapper.defaultpcd, err = os.ReadFile(filepath.Clean(defaultPointCloudFilename))
+	wrapper.defaultpcd, err = f.ReadFile(defaultPointCloudFilename)
 	if err != nil {
 		return nil, err
 	}
