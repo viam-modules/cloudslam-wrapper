@@ -51,8 +51,8 @@ type Config struct {
 	APIKey               string  `json:"api_key"`
 	APIKeyID             string  `json:"api_key_id"`
 	SLAMService          string  `json:"slam_service"`
-	RobotID              string  `json:"robot_id"`
-	PartID               string  `json:"robot_part_id,omitempty"`
+	RobotID              string  `json:"machine_id"`
+	PartID               string  `json:"machine_part_id,omitempty"`
 	LocationID           string  `json:"location_id"`
 	OrganizationID       string  `json:"organization_id"`
 	MovementSensorFreqHz float64 `json:"movement_sensor_freq_hz,omitempty"`
