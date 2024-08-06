@@ -291,6 +291,13 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		}
 		resp[stopJobKey] = "Job completed, find your map at " + packageURL
 	}
+	if packageName, ok := req[localPackageKey]; ok {
+		packageURL, err := svc.UploadPackage(ctx, packageName.(string))
+		if err != nil {
+			return nil, err
+		}
+		resp[localPackageKey] = "local map saved, find your map at " + packageURL
+	}
 	return resp, nil
 }
 
@@ -370,6 +377,19 @@ func (svc *cloudslamWrapper) sensorInfoToProto() []*pbCloudSLAM.SensorInfo {
 			})
 	}
 	return sensorsProto
+}
+
+// ParseSensorsForPackage parses the sensors list nto a list of sensor structs to add to the map package metadata.
+func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
+	sensorMetadata := []interface{}{}
+	for _, sensor := range svc.sensors {
+		sensorMetadata = append(sensorMetadata, map[string]interface{}{
+			"name":         sensor.name,
+			"type":         sensor.sensorType.String(),
+			"frequency_hz": strconv.FormatFloat(sensor.freq, 'f', -1, 64),
+		})
+	}
+	return sensorMetadata, nil
 }
 
 // toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
