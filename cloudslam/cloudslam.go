@@ -310,10 +310,9 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
 				"Name = %v // Updating Version = %v", svc.updatingMapName, svc.updatingMapVersion)
-			resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
-		} else {
-			resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
 		}
+		resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
+
 	}
 	if _, ok := req[stopJobKey]; ok {
 		packageURL, err := svc.StopJob(ctx)
