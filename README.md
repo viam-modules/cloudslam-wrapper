@@ -22,6 +22,8 @@ On the new service panel, copy and paste the following attribute template into y
 }
 ```
 
+In addition, in your Cartographer config the setting `"use_cloud_slam"` must be set to `true`. This only applies when trying to use cloudslam. Uploading a locally built map does not require this setting.
+
 ### Attributes
 
 The following attributes are available for `viam:cloudslam-wrapper:cloudslam`

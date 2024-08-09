@@ -24,11 +24,11 @@ const (
 	internalStateName = "internalState.pbstream"
 )
 
-// UploadPackage grabs the current pcd map and internal state of the cloud managed robot
-// and creates a package at the robots location using the CreatePackage API.
+// UploadPackage grabs the current pcd map and internal state of the cloud managed machine
+// and creates a package at the machines location using the CreatePackage API.
 func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) (string, error) {
 	if svc.partID == "" {
-		return "", errors.New("must set robot_part_id in config to use this feature")
+		return "", errors.New("must set machine_part_id in config to use this feature")
 	}
 	// grab the current time to mark the "version" of the slam map
 	packageVersion := strconv.FormatInt(time.Now().Unix(), 10)
@@ -303,7 +303,7 @@ func (svc *cloudslamWrapper) GetPackageMetadata(thumbnailFileID string) (*struct
 		"file_id":       thumbnailFileID,
 		"module":        "cartographer-module",
 		"moduleVersion": svc.slamVersion,
-		"robot_id":      svc.robotID,
+		"robot_id":      svc.machineID,
 		"location_id":   svc.locationID,
 		"sensors":       sensorMetadata,
 	})

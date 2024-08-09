@@ -64,8 +64,8 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 	}, nil
 }
 
-// GetPackagesOnRobot makes a Config request to app and returns the first SLAM map that it finds on the robot.
-func (app *AppClient) GetPackagesOnRobot(ctx context.Context, partID string) (string, string, error) {
+// GetSLAMMapPackageOnRobot makes a Config request to app and returns the first SLAM map that it finds on the robot.
+func (app *AppClient) GetSLAMMapPackageOnRobot(ctx context.Context, partID string) (string, string, error) {
 	req := pbApp.ConfigRequest{Id: partID}
 	resp, err := app.RobotClient.Config(ctx, &req)
 	if err != nil {

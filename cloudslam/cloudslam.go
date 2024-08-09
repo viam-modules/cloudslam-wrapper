@@ -26,7 +26,7 @@ import (
 
 const (
 	startJobKey               = "start"
-	updatingModeKey           = "updating mode"
+	updatingModeKey           = "updating-mode"
 	stopJobKey                = "stop"
 	localPackageKey           = "save-local-map"
 	timeFormat                = time.RFC3339
@@ -53,7 +53,7 @@ type Config struct {
 	APIKey               string  `json:"api_key"`
 	APIKeyID             string  `json:"api_key_id"`
 	SLAMService          string  `json:"slam_service"`
-	RobotID              string  `json:"machine_id"`
+	MachineID            string  `json:"machine_id"`
 	PartID               string  `json:"machine_part_id,omitempty"`
 	LocationID           string  `json:"location_id"`
 	OrganizationID       string  `json:"organization_id"`
@@ -75,8 +75,8 @@ type cloudslamWrapper struct {
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
 
-	// these define which robot/location/org we want to upload the map to. the API key should be defined for this location/org
-	robotID        string
+	// these define which machine/location/org we want to upload the map to. the API key should be defined for this location/org
+	machineID      string
 	partID         string
 	locationID     string
 	organizationID string
@@ -121,7 +121,7 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 	if cfg.APIKeyID == "" {
 		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key_id")
 	}
-	if cfg.RobotID == "" {
+	if cfg.MachineID == "" {
 		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "machine_id")
 	}
 	if cfg.LocationID == "" {
@@ -187,7 +187,7 @@ func newSLAM(
 		logger:         logger,
 		cancelCtx:      cancelCtx,
 		cancelFunc:     cancel,
-		robotID:        newConf.RobotID,
+		machineID:      newConf.MachineID,
 		locationID:     newConf.LocationID,
 		organizationID: newConf.OrganizationID,
 		partID:         newConf.PartID,
@@ -195,7 +195,7 @@ func newSLAM(
 		app:            appClients,
 	}
 
-	err = wrapper.initialize()
+	err = wrapper.initialize(props.MappingMode)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -205,7 +205,7 @@ func newSLAM(
 }
 
 // initialize completes the initiaization of the cloudslam wrapper struct.
-func (svc *cloudslamWrapper) initialize() error {
+func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	var err error
 	svc.lastPose.Store(&initPose)
 	initJob := ""
@@ -217,15 +217,20 @@ func (svc *cloudslamWrapper) initialize() error {
 	if err != nil {
 		return err
 	}
-	if svc.partID != "" {
-		svc.updatingMapName, svc.updatingMapVersion, err = svc.app.GetPackagesOnRobot(svc.cancelCtx, svc.partID)
+
+	// only attempt updating mode if a partID is configured and the user is not trying to make a new map.
+	// the cloudslam can still make a new map if no slam_map package is found.
+	// the webapp does not remove the package from the config when swapping from updating mode to mapping mode, so this code
+	// needs the extra check to ensure we only update maps when the user wants to.
+	if svc.partID != "" && mappingMode != slam.MappingModeNewMap {
+		svc.updatingMapName, svc.updatingMapVersion, err = svc.app.GetSLAMMapPackageOnRobot(svc.cancelCtx, svc.partID)
 		if err != nil {
 			return err
 		}
 	}
 
-	// check if the robot has an active job
-	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: svc.robotID}
+	// check if the machine has an active job
+	reqActives := &pbCloudSLAM.GetActiveMappingSessionsForRobotRequest{RobotId: svc.machineID}
 	resp, err := svc.app.CSClient.GetActiveMappingSessionsForRobot(svc.cancelCtx, reqActives)
 	if err != nil {
 		return err
@@ -311,8 +316,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
 				"Name = %v // Updating Version = %v", svc.updatingMapName, svc.updatingMapVersion)
 		}
-		resp[startJobKey] = "Starting cloudslam session, the robot should appear in ~1 minute. Job ID: " + jobID
-
+		resp[startJobKey] = "Starting cloudslam session, the machine should appear in ~1 minute. Job ID: " + jobID
 	}
 	if _, ok := req[stopJobKey]; ok {
 		packageURL, err := svc.StopJob(ctx)
@@ -333,7 +337,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 
 // StopJob stops the current active cloudslam job.
 func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
-	// grab the active job but do not clear it from the module. that way users can still see the final map on the robot
+	// grab the active job but do not clear it from the module. that way users can still see the final map on the machine
 	currJob := *svc.activeJob.Load()
 	if currJob == "" {
 		return "", errors.New("no active jobs")
@@ -350,6 +354,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 }
 
 // StartJob starts a cloudslam job with the requested map name. Currently assumes a set of config parameters.
+// returns the sessionID and whether the job is using updating mode on success.
 func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (string, bool, error) {
 	updatingMode := false
 	starttime := timestamppb.New(time.Now())
@@ -367,8 +372,15 @@ func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (stri
 		return "", updatingMode, err
 	}
 	req := &pbCloudSLAM.StartMappingSessionRequest{
-		SlamVersion: svc.slamVersion, ViamServerVersion: svc.viamVersion, MapName: mapName, OrganizationId: svc.organizationID,
-		LocationId: svc.locationID, RobotId: svc.robotID, CaptureInterval: &interval, Sensors: svc.sensorInfoToProto(), SlamConfig: configParams,
+		SlamVersion:       svc.slamVersion,
+		ViamServerVersion: svc.viamVersion,
+		MapName:           mapName,
+		OrganizationId:    svc.organizationID,
+		LocationId:        svc.locationID,
+		RobotId:           svc.machineID,
+		CaptureInterval:   &interval,
+		Sensors:           svc.sensorInfoToProto(),
+		SlamConfig:        configParams,
 	}
 	if svc.updatingMapName != "" {
 		req.MapName = svc.updatingMapName
