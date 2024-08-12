@@ -22,6 +22,8 @@ On the new service panel, copy and paste the following attribute template into y
 }
 ```
 
+In addition, in your Cartographer config the setting `"use_cloud_slam"` must be set to `true`. This only applies when trying to use cloudslam. Uploading a locally built map does not require this setting.
+
 ### Attributes
 
 The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
@@ -34,7 +36,7 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 | `organization_id` | string | **Required**     | id string for your [organization](https://docs.viam.com/cloud/organizations/)        |
 | `location_id` | string | **Required**     | id string for your [location](https://docs.viam.com/cloud/locations/)        |
 | `machine_id` | string | **Required**     | id string for your [machine](https://docs.viam.com/appendix/apis/fleet/#find-machine-id)        |
-| `machine_part_id` | string | Optional     | optional id string for the [machine part](https://docs.viam.com/appendix/apis/fleet/#find-machine-id). only used when using local package creation        |
+| `machine_part_id` | string | Optional     | optional id string for the [machine part](https://docs.viam.com/appendix/apis/fleet/#find-machine-id). Used for local package creation and updating mode       |
 | `viam_version` | string | Optional     | optional string to identify which version of viam-server to use with cloudslam. Defaults to `stable`        |
 | `slam_version` | string | Optional     | optional string to identify which version of cartographer to use with cloudslam. Defaults to `stable`         |
 | `camera_freq_hz` | float | Optional     | set the expected capture frequency for your camera/lidar components. Defaults to `5`        |
@@ -63,3 +65,5 @@ To interact with a cloudslam mapping session, go to the `DoCommand` on the [Cont
 - {`"start": "<MAP_NAME>"`} will start a cloudslam mapping session using the configured SLAM service. If the request is successful the current map will appear in the cloudslam-wrapper's service card after ~1 minute
 - {`"stop": ""`} will stop an active cloudslam mapping session if one is running. The completed map can be found on the SLAM library tab of the machines page
 - {`"save-local-map": "<MAP_NAME>"`} will grab the current map from the configured SLAM service and upload it to your location, in the SLAM library tab of the machines page
+
+For updating a map using cloudslam, a `machine_part_id` must be configured. When configured, the module will check the machine's config to see if any slam maps are configured on the robot. If a slam map is found, cloudslam will be configured for updating mode and the map name will be inherited from the configured map.

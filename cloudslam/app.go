@@ -10,6 +10,7 @@ import (
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	pbDataSync "go.viam.com/api/app/datasync/v1"
 	pbPackage "go.viam.com/api/app/packages/v1"
+	pbApp "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
 )
@@ -24,6 +25,7 @@ type AppClient struct {
 	CSClient      pbCloudSLAM.CloudSLAMServiceClient
 	PackageClient pbPackage.PackageServiceClient
 	SyncClient    pbDataSync.DataSyncServiceClient
+	RobotClient   pbApp.RobotServiceClient
 	HTTPClient    *http.Client // used for downloading pcds of the current cloudslam session
 }
 
@@ -53,12 +55,29 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 		CSClient:      pbCloudSLAM.NewCloudSLAMServiceClient(conn),
 		SyncClient:    pbDataSync.NewDataSyncServiceClient(conn),
 		PackageClient: pbPackage.NewPackageServiceClient(conn),
+		RobotClient:   pbApp.NewRobotServiceClient(conn),
 		// Disable keepalives makes each request only last for a single http GET request.
 		//  Doing this to prevent any active connections from causing goleaks when the viam-server shuts down.
 		// This might be redundant with CloseIdleConnections in Close(),
 		// and unsure if the extra cost of redoing the TLS handshake makes this change worth it
 		HTTPClient: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
 	}, nil
+}
+
+// GetSLAMMapPackageOnRobot makes a Config request to app and returns the first SLAM map that it finds on the robot.
+func (app *AppClient) GetSLAMMapPackageOnRobot(ctx context.Context, partID string) (string, string, error) {
+	req := pbApp.ConfigRequest{Id: partID}
+	resp, err := app.RobotClient.Config(ctx, &req)
+	if err != nil {
+		return "", "", err
+	}
+	packages := resp.GetConfig().GetPackages()
+	for _, robotPackage := range packages {
+		if robotPackage.GetType() == "slam_map" {
+			return robotPackage.GetName(), robotPackage.GetVersion(), nil
+		}
+	}
+	return "", "", nil
 }
 
 // GetDataFromHTTP makes a request to an http endpoint app serves, which gets redirected to GCS.

@@ -24,11 +24,11 @@ const (
 	internalStateName = "internalState.pbstream"
 )
 
-// UploadPackage grabs the current pcd map and internal state of the cloud managed robot
-// and creates a package at the robots location using the CreatePackage API.
+// UploadPackage grabs the current pcd map and internal state of the cloud managed machine
+// and creates a package at the machines location using the CreatePackage API.
 func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) (string, error) {
 	if svc.partID == "" {
-		return "", errors.New("must set robot_part_id in config to use this feature")
+		return "", errors.New("must set machine_part_id in config to use this feature")
 	}
 	// grab the current time to mark the "version" of the slam map
 	packageVersion := strconv.FormatInt(time.Now().Unix(), 10)
@@ -58,7 +58,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	return packageURL, nil
 }
 
-// uploadArchive creates a tar/archive of the SLAM map and uploads it to app using the package APIs
+// uploadArchive creates a tar/archive of the SLAM map and uploads it to app using the package APIs.
 func (svc *cloudslamWrapper) uploadArchive(ctx context.Context, files []SLAMFile, mapName, thumbnailFileID, packageVersion string) error {
 	myPackage, err := CreateArchive(files)
 	if err != nil {
@@ -106,7 +106,7 @@ func (svc *cloudslamWrapper) uploadArchive(ctx context.Context, files []SLAMFile
 	return nil
 }
 
-// sendPackageRequests sends the package to app
+// sendPackageRequests sends the package to app.
 func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_CreatePackageClient,
 	f *bytes.Buffer, packageInfo *pbPackage.PackageInfo,
 ) error {
@@ -145,7 +145,7 @@ func sendPackageRequests(ctx context.Context, stream pbPackage.PackageService_Cr
 	}
 }
 
-// getCreatePackageRequest creates a package request with a chunk of the package
+// getCreatePackageRequest creates a package request with a chunk of the package.
 func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.CreatePackageRequest, error) {
 	select {
 	case <-ctx.Done():
@@ -165,7 +165,7 @@ func getCreatePackageRequest(ctx context.Context, f *bytes.Buffer) (*pbPackage.C
 	}
 }
 
-// readNextFileChunk gets a chunk of data from a buffer
+// readNextFileChunk gets a chunk of data from a buffer.
 func readNextFileChunk(f *bytes.Buffer) ([]byte, error) {
 	byteArr := make([]byte, UploadChunkSize)
 	numBytesRead, err := f.Read(byteArr)
@@ -277,7 +277,7 @@ type SLAMFile struct {
 	name         string
 }
 
-// findPCD finds a pcd file in a list of slam files
+// findPCD finds a pcd file in a list of slam files.
 func findPCD(files []SLAMFile) ([]byte, error) {
 	for _, f := range files {
 		if f.slamFileType == PCDType {
@@ -303,7 +303,7 @@ func (svc *cloudslamWrapper) GetPackageMetadata(thumbnailFileID string) (*struct
 		"file_id":       thumbnailFileID,
 		"module":        "cartographer-module",
 		"moduleVersion": svc.slamVersion,
-		"robot_id":      svc.robotID,
+		"robot_id":      svc.machineID,
 		"location_id":   svc.locationID,
 		"sensors":       sensorMetadata,
 	})
