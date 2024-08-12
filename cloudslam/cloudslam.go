@@ -33,9 +33,10 @@ const (
 	chunkSizeBytes            = 1 * 1024 * 1024
 	defaultPointCloudFilename = "defaultpcd.pcd" // must match filename in embed.FS
 	// numbers are derived from the current behavior of cartographer.
-	defaultLidarFreq = 5   // Hz
-	defaultMSFreq    = 20  // Hz
-	mapRefreshRate   = 5.0 // Seconds
+	defaultLidarFreq = 5                      // Hz
+	defaultMSFreq    = 20                     // Hz
+	defaultBaseURL   = "https://app.viam.com" // connect to prod by default
+	mapRefreshRate   = 5.0                    // Seconds
 )
 
 var (
@@ -61,6 +62,7 @@ type Config struct {
 	LidarFreqHz          float64 `json:"camera_freq_hz,omitempty"`
 	SLAMVersion          string  `json:"slam_version,omitempty"`
 	VIAMVersion          string  `json:"viam_version,omitempty"`
+	BaseURL              string  `json:"base_url,omitempty"` // this should only be used for testing in staging
 }
 
 type cloudslamWrapper struct {
@@ -164,6 +166,10 @@ func newSLAM(
 	if msFreq == 0 {
 		msFreq = defaultMSFreq
 	}
+	baseURL := newConf.BaseURL
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 
 	props, err := wrappedSLAM.Properties(ctx)
 	if err != nil {
@@ -173,7 +179,7 @@ func newSLAM(
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 
-	appClients, err := CreateCloudSLAMClient(cancelCtx, newConf.APIKey, newConf.APIKeyID, "https://app.viam.com", logger)
+	appClients, err := CreateCloudSLAMClient(cancelCtx, newConf.APIKey, newConf.APIKeyID, baseURL, logger)
 	if err != nil {
 		cancel()
 		return nil, err
