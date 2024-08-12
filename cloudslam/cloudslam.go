@@ -302,6 +302,12 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 }
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
+	if *svc.activeJob.Load() != "" {
+		_, err := svc.StopJob(ctx)
+		if err != nil {
+			svc.logger.Errorf("error while stopping job: %v", err)
+		}
+	}
 	svc.cancelFunc()
 	svc.workers.Stop()
 	return svc.app.Close()
