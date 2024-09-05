@@ -1,6 +1,6 @@
 module github.com/viam-modules/cloudslam-wrapper
 
-go 1.21.9
+go 1.21.13
 
 require (
 	github.com/AlekSi/gocov-xml v1.1.0
