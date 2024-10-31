@@ -163,8 +163,8 @@ func (ppRM *ParallelProjectionOntoXYWithRobotMarker) PointCloudToRGBD(cloud poin
 
 	// Add points in the pointcloud to a new image
 	im := rimage.NewImage(imageWidth, imageHeight)
-	for i := 0; i < im.Width(); i++ {
-		for j := 0; j < im.Height(); j++ {
+	for i := range im.Width() {
+		for j := range im.Height() {
 			im.SetXY(i, j, rimage.White)
 		}
 	}

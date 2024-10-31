@@ -18,7 +18,6 @@ import (
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/rdk/spatialmath"
-	"go.viam.com/rdk/utils"
 	goutils "go.viam.com/utils"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -92,7 +91,7 @@ type cloudslamWrapper struct {
 	// app clients for talking to app
 	app *AppClient
 
-	workers    utils.StoppableWorkers
+	workers    goutils.StoppableWorkers
 	logger     logging.Logger
 	cancelCtx  context.Context
 	cancelFunc func()
@@ -243,7 +242,7 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	}
 	svc.activeJob.Store(&resp.SessionId)
 
-	svc.workers = utils.NewStoppableWorkers(svc.activeMappingSessionThread)
+	svc.workers = *goutils.NewBackgroundStoppableWorkers(svc.activeMappingSessionThread)
 	return nil
 }
 

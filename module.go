@@ -16,7 +16,7 @@ func main() {
 }
 
 func mainWithArgs(ctx context.Context, args []string, logger logging.Logger) (err error) {
-	customModule, err := module.NewModuleFromArgs(ctx, logger)
+	customModule, err := module.NewModuleFromArgs(ctx)
 	if err != nil {
 		return err
 	}
