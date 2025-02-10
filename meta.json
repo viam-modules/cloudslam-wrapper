@@ -6,7 +6,9 @@
   "models": [
     {
       "api": "rdk:service:slam",
-      "model": "viam:cloudslam-wrapper:cloudslam"
+      "model": "viam:cloudslam-wrapper:cloudslam",
+      "markdown_link": "README.md#configure-your-cloudslam-wrapper",
+      "short_description": "slam service that implement the cloudslam api."
     }
   ],
   "build": {
