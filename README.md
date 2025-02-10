@@ -4,10 +4,10 @@ This [module](https://docs.viam.com/registry/#modular-resources) implements the 
 With this model, you can start, view, and stop cloudslam mapping sessions by using the DoCommands defined within the module, as well as upload a locally built SLAM map to the registry.
 Currently, only [Cartographer](https://docs.viam.com/services/slam/cartographer/) is supported for cloudslam, but all SLAM services can use the local map upload feature.
 
-## Configure your cloudslam-wrapper
-
 Navigate to the [**CONFIGURE** tab](https://docs.viam.com/configure/) of your [machine](https://docs.viam.com/fleet/machines/) in [the Viam app](https://app.viam.com/).
 [Add cloudslam-wrapper to your machine](https://docs.viam.com/configure/#services).
+
+## Configure your cloudslam-wrapper
 
 On the new service panel, copy and paste the following attribute template into your SLAM’s attributes field:
 
@@ -59,6 +59,50 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
    "viam_version": "stable", 
 }
 ```
+
+### DoCommand
+
+The cloudslam wrapper model uses DoCommands to enable access to cloudslam APIs. 
+
+#### Start a Mapping Session
+
+This command will start a cloudslam mapping session using the configured SLAM service. If the request is successful the current map will appear in the cloudslam-wrapper's service card after ~1 minute.
+
+```json
+{
+  "start": "<MAP_NAME>"
+}
+```
+
+#### Stop a Mapping Session
+
+This command will will stop an active cloudslam mapping session if one is running. The completed map can be found on the SLAM library tab of the machines page.
+
+```json
+{
+  "stop": ""
+}
+```
+
+#### Save a locally built map
+
+This command will will grab the current map from the configured SLAM service and upload it to your location, in the SLAM library tab of the machines page. This option is meant to be an alternative to using cloudslam.
+
+```json
+{
+  "save-local-map": "<MAP_NAME>"
+}
+```
+
+### Troubleshooting
+
+If mapping sessions are failing unexpectedly, check the following:
+
+- Is data capture configured on the camera and movement sensor?
+- Is data capture properly uploading the latest sensor data? 
+   - you can check this by viewing the [data page](https://app.viam.com/data/view?view=sensors) or checking if the capture directory has a large amount of data to process.
+   - If you believe this is occuring, try changing the capture directory to a different folder.
+ 
 
 ### Next steps - Using the cloudslam service
 To interact with a cloudslam mapping session, go to the `DoCommand` on the [Control tab](https://docs.viam.com/cloud/machines/#control) and select your cloudslam wrapper service from the dropdown. From here, you can use the following commands
