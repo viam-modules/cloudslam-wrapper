@@ -504,14 +504,20 @@ func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
 	return sensorMetadata, nil
 }
 
-// generateProgressRingPCD generates a point cloud of a progress arc indicating elapsed time.
-// The arc grows clockwise from 0 to a full circle over progressRingDuration, giving the user
-// visual feedback while waiting for the first cloudslam map to appear.
+// generateProgressRingPCD generates a point cloud of a progress arc with status text inside.
+// The arc grows from 0 to a full circle over progressRingDuration. Text reading
+// "WAITING FOR / SESSION TO START" is rendered inside the ring using a 5×7 dot-matrix font
+// so the viewer can clearly distinguish this from a real map.
 func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
 	const (
 		numPoints            = 360
 		radius               = 1000.0 // mm
 		progressRingDuration = 5 * time.Minute
+		pixelSize            = 18.0 // mm per dot — fits both text lines within the ring
+		line1                = "WAITING FOR"
+		line2                = "SESSION TO START"
+		fontRows             = 7
+		lineGapRows          = 2
 	)
 
 	// Always show at least a small arc so the user sees something immediately.
@@ -526,6 +532,23 @@ func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
 		if err := pc.Set(r3.Vector{X: x, Y: y, Z: 0}, pointcloud.NewBasicData()); err != nil {
 			return nil, err
 		}
+	}
+
+	// Center both lines vertically around the origin.
+	// line1Y is the y coordinate of the top pixel row of line 1;
+	// with pixelSize=18 both lines fit comfortably within the 1000mm ring radius.
+	line1Y := float64(fontRows+lineGapRows+fontRows-1) / 2 * pixelSize
+	line2Y := line1Y - float64(fontRows+lineGapRows)*pixelSize
+
+	// Center each line horizontally. Width = (nChars×6 − 1) × pixelSize.
+	line1X := -float64(len(line1)*6-1) * pixelSize / 2
+	line2X := -float64(len(line2)*6-1) * pixelSize / 2
+
+	if err := addTextToPCD(pc, line1, line1X, line1Y, pixelSize); err != nil {
+		return nil, err
+	}
+	if err := addTextToPCD(pc, line2, line2X, line2Y, pixelSize); err != nil {
+		return nil, err
 	}
 
 	var buf bytes.Buffer
