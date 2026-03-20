@@ -113,7 +113,6 @@ func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string
 		return err
 	}
 
-	// index sensor names for quick lookup, track which ones we've verified
 	pending := make(map[string]struct{}, len(sensors))
 	for _, s := range sensors {
 		pending[s.name] = struct{}{}

@@ -90,7 +90,7 @@ type cloudslamWrapper struct {
 	viamVersion    string // optional cloudslam setting, describes which viam-server appimage to use(stable/latest/pr/pinned)
 	slamVersion    string // optional cloudslam setting, describes which cartographer appimage to use(stable/latest/pr/pinned)
 
-	// updating mode values. A user can only use updating mode if the partID is configured
+	// updating mode values.
 	updatingMapName    string // empty if slam is not in updating mode
 	updatingMapVersion string // empty if slam is not in updating mode
 
