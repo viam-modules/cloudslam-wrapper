@@ -144,7 +144,7 @@ func newSLAM(
 	if err != nil {
 		return nil, err
 	}
-	wrappedSLAM, err := slam.FromDependencies(deps, newConf.SLAMService)
+	wrappedSLAM, err := slam.FromProvider(deps, newConf.SLAMService)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,8 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	if err != nil {
 		return err
 	}
-	svc.activeJob.Store(&resp.SessionId)
+	sessionID := resp.GetSessionId()
+	svc.activeJob.Store(&sessionID)
 
 	svc.workers = goutils.NewBackgroundStoppableWorkers(svc.activeMappingSessionThread)
 	return nil
@@ -270,7 +271,8 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		currPose := spatialmath.NewPoseFromProtobuf(resp.GetPose())
 
 		svc.lastPose.Store(&currPose)
-		svc.lastPointCloudURL.Store(&resp.MapUrl)
+		mapURL := resp.GetMapUrl()
+		svc.lastPointCloudURL.Store(&mapURL)
 	}
 }
 
