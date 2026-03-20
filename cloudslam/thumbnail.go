@@ -104,7 +104,7 @@ func (svc *cloudslamWrapper) uploadJpeg(
 // pcdToJpeg converts a pointcloud data into a jpeg image.
 func pcdToJpeg(pcd []byte) (*bytes.Buffer, error) {
 	ppRM := NewParallelProjectionOntoXYWithRobotMarker(nil)
-	pc, err := pointcloud.ReadPCD(bytes.NewBuffer(pcd))
+	pc, err := pointcloud.ReadPCD(bytes.NewBuffer(pcd), "")
 	if err != nil {
 		return nil, errors.Wrapf(err, "converting pcd to pointcloud")
 	}
