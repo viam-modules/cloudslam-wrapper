@@ -111,27 +111,27 @@ func init() {
 }
 
 // Validate validates the config for cloudslam.
-func (cfg *Config) Validate(path string) ([]string, error) {
+func (cfg *Config) Validate(path string) ([]string, []string, error) {
 	// resource.NewConfigValidationFieldRequiredError(path, "i2c_bus")
 	if cfg.SLAMService == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "slam_service")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "slam_service")
 	}
 	if cfg.APIKey == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key")
 	}
 	if cfg.APIKeyID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key_id")
 	}
 	if cfg.MachineID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "machine_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "machine_id")
 	}
 	if cfg.LocationID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "location_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "location_id")
 	}
 	if cfg.OrganizationID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "organization_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "organization_id")
 	}
-	return []string{cfg.SLAMService}, nil
+	return []string{cfg.SLAMService}, []string{}, nil
 }
 
 func newSLAM(
