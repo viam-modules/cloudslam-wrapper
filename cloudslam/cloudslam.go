@@ -12,12 +12,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"os"
+
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	"go.viam.com/rdk/grpc"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/rdk/spatialmath"
+	rdkutils "go.viam.com/rdk/utils"
 	goutils "go.viam.com/utils"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -111,27 +114,24 @@ func init() {
 }
 
 // Validate validates the config for cloudslam.
-func (cfg *Config) Validate(path string) ([]string, error) {
+func (cfg *Config) Validate(path string) ([]string, []string, error) {
 	// resource.NewConfigValidationFieldRequiredError(path, "i2c_bus")
 	if cfg.SLAMService == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "slam_service")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "slam_service")
 	}
 	if cfg.APIKey == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key")
 	}
 	if cfg.APIKeyID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key_id")
-	}
-	if cfg.MachineID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "machine_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "api_key_id")
 	}
 	if cfg.LocationID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "location_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "location_id")
 	}
 	if cfg.OrganizationID == "" {
-		return []string{}, resource.NewConfigValidationFieldRequiredError(path, "organization_id")
+		return []string{}, []string{}, resource.NewConfigValidationFieldRequiredError(path, "organization_id")
 	}
-	return []string{cfg.SLAMService}, nil
+	return []string{cfg.SLAMService}, []string{}, nil
 }
 
 func newSLAM(
@@ -147,6 +147,19 @@ func newSLAM(
 	wrappedSLAM, err := slam.FromDependencies(deps, newConf.SLAMService)
 	if err != nil {
 		return nil, err
+	}
+
+	machineID := newConf.MachineID
+	if machineID == "" {
+		machineID = os.Getenv(rdkutils.MachineIDEnvVar)
+	}
+	if machineID == "" {
+		return nil, fmt.Errorf("machine_id is required but not set in config or %s env var", rdkutils.MachineIDEnvVar)
+	}
+
+	partID := newConf.PartID
+	if partID == "" {
+		partID = os.Getenv(rdkutils.MachinePartIDEnvVar)
 	}
 
 	viamVersion := newConf.VIAMVersion
@@ -192,10 +205,10 @@ func newSLAM(
 		logger:         logger,
 		cancelCtx:      cancelCtx,
 		cancelFunc:     cancel,
-		machineID:      newConf.MachineID,
+		machineID:      machineID,
 		locationID:     newConf.LocationID,
 		organizationID: newConf.OrganizationID,
-		partID:         newConf.PartID,
+		partID:         partID,
 		sensors:        csSensors,
 		app:            appClients,
 	}
