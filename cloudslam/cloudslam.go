@@ -328,6 +328,11 @@ func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	resp := map[string]interface{}{}
 	if name, ok := req[startJobKey]; ok {
+		if svc.partID != "" {
+			if err := svc.app.CheckSensorsDataCapture(ctx, svc.partID, svc.sensors, svc.logger); err != nil {
+				return nil, err
+			}
+		}
 		jobID, isUpdating, err := svc.StartJob(svc.cancelCtx, name.(string))
 		if err != nil {
 			return nil, err
