@@ -17,10 +17,11 @@ On the new service panel, copy and paste the following attribute template into y
    "api_key": "<location-api-key>",
    "api_key_id": "<location-api-key-id>",
    "organization_id": "<organization_id>",
-   "location_id": "<location_id>",
-   "machine_id": "<machine_id>",
+   "location_id": "<location_id>"
 }
 ```
+
+> **Note:** `machine_id` and `machine_part_id` are automatically read from the `VIAM_MACHINE_ID` and `VIAM_MACHINE_PART_ID` environment variables that viam-server sets on every machine. You only need to set them explicitly in the config when running outside of viam-server.
 
 In addition, in your Cartographer config the setting `"use_cloud_slam"` must be set to `true`. This only applies when trying to use cloudslam. Uploading a locally built map does not require this setting.
 
@@ -35,8 +36,8 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 | `api_key_id` | string | **Required**     | location owner API key id        |
 | `organization_id` | string | **Required**     | id string for your [organization](https://docs.viam.com/cloud/organizations/)        |
 | `location_id` | string | **Required**     | id string for your [location](https://docs.viam.com/cloud/locations/)        |
-| `machine_id` | string | **Required**     | id string for your [machine](https://docs.viam.com/appendix/apis/fleet/#find-machine-id)        |
-| `machine_part_id` | string | Optional     | optional id string for the [machine part](https://docs.viam.com/appendix/apis/fleet/#find-machine-id). Used for local package creation and updating mode       |
+| `machine_id` | string | Optional     | id string for your [machine](https://docs.viam.com/appendix/apis/fleet/#find-machine-id). Defaults to the `VIAM_MACHINE_ID` env var set by viam-server        |
+| `machine_part_id` | string | Optional     | id string for the [machine part](https://docs.viam.com/appendix/apis/fleet/#find-machine-id). Defaults to the `VIAM_MACHINE_PART_ID` env var set by viam-server. Used for data capture validation, local package creation, and updating mode       |
 | `viam_version` | string | Optional     | optional string to identify which version of viam-server to use with cloudslam. Defaults to `stable`        |
 | `slam_version` | string | Optional     | optional string to identify which version of cartographer to use with cloudslam. Defaults to `stable`         |
 | `camera_freq_hz` | float | Optional     | set the expected capture frequency for your camera/lidar components. Defaults to `5`        |
@@ -47,16 +48,14 @@ The following attributes are available for `viam:cloudslam-wrapper:cloudslam`
 ```json
 {
   "slam_service": "my-actual-slam-service",
-   "api_key": "location-api-key",
-   "api_key_id": "location-api-key-id",
-   "organization_id": "organization_id",
-   "location_id": "location_id",
-   "machine_id": "machine_id",
-   "machine_part_id": "machine_part_id", 
-   "camera_freq_hz": 5.0,
-   "movement_sensor_freq_hz": 20.0, 
-   "slam_version": "stable", 
-   "viam_version": "stable", 
+  "api_key": "location-api-key",
+  "api_key_id": "location-api-key-id",
+  "organization_id": "organization_id",
+  "location_id": "location_id",
+  "camera_freq_hz": 5.0,
+  "movement_sensor_freq_hz": 20.0,
+  "slam_version": "stable",
+  "viam_version": "stable"
 }
 ```
 
@@ -110,4 +109,4 @@ To interact with a cloudslam mapping session, go to the `DoCommand` on the [Cont
 - {`"stop": ""`} will stop an active cloudslam mapping session if one is running. The completed map can be found on the SLAM library tab of the machines page
 - {`"save-local-map": "<MAP_NAME>"`} will grab the current map from the configured SLAM service and upload it to your location, in the SLAM library tab of the machines page
 
-For updating a map using cloudslam, a `machine_part_id` must be configured. When configured, the module will check the machine's config to see if any slam maps are configured on the robot. If a slam map is found, cloudslam will be configured for updating mode and the map name will be inherited from the configured map.
+For updating a map using cloudslam, the module checks the machine's config for any slam map packages. If one is found and the SLAM service is not in new-map mode, cloudslam will start in updating mode and inherit the map name from the configured package.
