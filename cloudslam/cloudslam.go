@@ -174,6 +174,9 @@ func newSLAM(
 	if partID == "" {
 		partID = os.Getenv(rdkutils.MachinePartIDEnvVar)
 	}
+	if partID == "" {
+		return nil, fmt.Errorf("machine_part_id is required but not set in config or %s env var", rdkutils.MachinePartIDEnvVar)
+	}
 
 	viamVersion := newConf.VIAMVersion
 	if viamVersion == "" {
@@ -248,11 +251,11 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 		return err
 	}
 
-	// only attempt updating mode if a partID is configured and the user is not trying to make a new map.
+	// only attempt updating mode if the user is not trying to make a new map.
 	// the cloudslam can still make a new map if no slam_map package is found.
 	// the webapp does not remove the package from the config when swapping from updating mode to mapping mode, so this code
 	// needs the extra check to ensure we only update maps when the user wants to.
-	if svc.partID != "" && mappingMode != slam.MappingModeNewMap {
+	if mappingMode != slam.MappingModeNewMap {
 		name, version, err := svc.app.GetSLAMMapPackageOnRobot(svc.cancelCtx, svc.partID)
 		if err != nil {
 			return err
