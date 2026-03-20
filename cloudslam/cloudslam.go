@@ -379,6 +379,15 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	metaResp, err := svc.app.CSClient.GetMappingSessionMetadataByID(ctx,
+		&pbCloudSLAM.GetMappingSessionMetadataByIDRequest{SessionId: currJob})
+	if err != nil {
+		svc.logger.Warnf("could not retrieve session metadata for job %s: %v", currJob, err)
+	} else if metaResp.GetSessionMetadata().GetEndStatus() == pbCloudSLAM.EndStatus_END_STATUS_FAIL {
+		return "", fmt.Errorf("cloudslam session failed: %s", metaResp.GetSessionMetadata().GetErrorMsg())
+	}
+
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
 	packageURL := svc.app.baseURL + "/robots?name=" + packageName + "&version=" + resp.GetVersion()
 	return packageURL, nil
