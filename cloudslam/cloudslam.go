@@ -403,7 +403,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 	}
 
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
-	packageURL := svc.app.baseURL + "/robots?name=" + packageName + "&version=" + resp.GetVersion()
+	packageURL := svc.app.baseURL + "/robots?page=slam&name=" + packageName + "&version=" + resp.GetVersion()
 	return packageURL, nil
 }
 
