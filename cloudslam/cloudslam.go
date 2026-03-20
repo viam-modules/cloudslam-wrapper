@@ -341,10 +341,8 @@ func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	resp := map[string]interface{}{}
 	if name, ok := req[startJobKey]; ok {
-		if svc.partID != "" {
-			if err := svc.app.CheckSensorsDataCapture(ctx, svc.partID, svc.sensors, svc.logger); err != nil {
-				return nil, err
-			}
+		if err := svc.app.CheckSensorsDataCapture(ctx, svc.partID, svc.sensors, svc.logger); err != nil {
+			return nil, err
 		}
 		jobID, isUpdating, err := svc.StartJob(svc.cancelCtx, name.(string))
 		if err != nil {
@@ -367,7 +365,6 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		if err != nil {
 			return nil, err
 		}
-		svc.jobStartTime.Store(nil)
 		resp[stopJobKey] = "Job completed, find your map at " + packageURL
 	}
 	if packageName, ok := req[localPackageKey]; ok {
@@ -402,6 +399,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("cloudslam session failed: %s", metaResp.GetSessionMetadata().GetErrorMsg())
 	}
 
+	svc.jobStartTime.Store(nil)
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
 	packageURL := svc.app.baseURL + "/robots?page=slam&name=" + packageName + "&version=" + resp.GetVersion()
 	return packageURL, nil

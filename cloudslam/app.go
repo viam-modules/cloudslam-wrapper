@@ -116,12 +116,9 @@ func (app *AppClient) CheckSensorsDataCapture(
 	}
 
 	pending := make(map[string]struct{}, len(sensors))
-	for _, s := range sensors {
-		pending[s.name] = struct{}{}
-	}
-
 	sensorTypes := make(map[string]slam.SensorType, len(sensors))
 	for _, s := range sensors {
+		pending[s.name] = struct{}{}
 		sensorTypes[s.name] = s.sensorType
 	}
 
