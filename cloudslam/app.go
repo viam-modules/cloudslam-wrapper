@@ -174,6 +174,11 @@ func hasEnabledDataCapture(comp *pbApp.ComponentConfig, sensorType slam.SensorTy
 	return false
 }
 
+// SLAMMapURL returns the app URL for viewing a SLAM map package.
+func (app *AppClient) SLAMMapURL(mapName, version string) string {
+	return app.baseURL + "/robots?page=slam&name=" + mapName + "&version=" + version
+}
+
 // Close closes the app clients.
 func (app *AppClient) Close() error {
 	// close any idle connections to prevent goleaks. Possibly redundant with DisableKeepAlives
