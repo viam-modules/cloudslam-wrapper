@@ -7,16 +7,18 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"math"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"os"
-
+	"github.com/golang/geo/r3"
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	"go.viam.com/rdk/grpc"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/pointcloud"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/services/slam"
 	"go.viam.com/rdk/spatialmath"
@@ -72,6 +74,7 @@ type cloudslamWrapper struct {
 	resource.AlwaysRebuild
 
 	activeJob         atomic.Pointer[string]
+	jobStartTime      atomic.Pointer[time.Time]
 	lastPose          atomic.Pointer[spatialmath.Pose]
 	lastPointCloudURL atomic.Pointer[string]
 	defaultpcd        []byte
@@ -294,8 +297,16 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
 	currMap := *svc.lastPointCloudURL.Load()
 
-	// return the placeholder map when no maps are present
 	if currMap == "" {
+		startTime := svc.jobStartTime.Load()
+		if startTime != nil {
+			progressPCD, err := generateProgressRingPCD(time.Since(*startTime))
+			if err != nil {
+				svc.logger.Warnf("failed to generate progress PCD: %v", err)
+				return toChunkedFunc(svc.defaultpcd), nil
+			}
+			return toChunkedFunc(progressPCD), nil
+		}
 		return toChunkedFunc(svc.defaultpcd), nil
 	}
 	pcdBytes, err := svc.app.GetDataFromHTTP(ctx, currMap)
@@ -338,6 +349,8 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 			return nil, err
 		}
 		svc.activeJob.Store(&jobID)
+		startTime := time.Now()
+		svc.jobStartTime.Store(&startTime)
 		svc.lastPose.Store(&initPose)
 		svc.lastPointCloudURL.Store(&initPCDURL)
 
@@ -352,6 +365,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		if err != nil {
 			return nil, err
 		}
+		svc.jobStartTime.Store(nil)
 		resp[stopJobKey] = "Job completed, find your map at " + packageURL
 	}
 	if packageName, ok := req[localPackageKey]; ok {
@@ -476,6 +490,37 @@ func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
 		})
 	}
 	return sensorMetadata, nil
+}
+
+// generateProgressRingPCD generates a point cloud of a progress arc indicating elapsed time.
+// The arc grows clockwise from 0 to a full circle over progressRingDuration, giving the user
+// visual feedback while waiting for the first cloudslam map to appear.
+func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
+	const (
+		numPoints            = 360
+		radius               = 1000.0 // mm
+		progressRingDuration = 5 * time.Minute
+	)
+
+	// Always show at least a small arc so the user sees something immediately.
+	fraction := math.Max(0.02, math.Min(elapsed.Seconds()/progressRingDuration.Seconds(), 1.0))
+	filledPoints := int(fraction * numPoints)
+
+	pc := pointcloud.NewBasicEmpty()
+	for i := 0; i < filledPoints; i++ {
+		angle := float64(i) / numPoints * 2 * math.Pi
+		x := radius * math.Cos(angle)
+		y := radius * math.Sin(angle)
+		if err := pc.Set(r3.Vector{X: x, Y: y, Z: 0}, pointcloud.NewBasicData()); err != nil {
+			return nil, err
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := pointcloud.ToPCD(pc, &buf, pointcloud.PCDAscii); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
