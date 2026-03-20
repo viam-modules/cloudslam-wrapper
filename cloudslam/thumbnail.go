@@ -98,7 +98,7 @@ func (svc *cloudslamWrapper) uploadJpeg(
 		return "", errors.Wrap(err, "received error response while syncing thumbnail")
 	}
 
-	return res.GetFileId(), nil
+	return res.GetBinaryDataId(), nil
 }
 
 // pcdToJpeg converts a pointcloud data into a jpeg image.

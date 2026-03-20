@@ -28,7 +28,7 @@ type AppClient struct {
 	PackageClient pbPackage.PackageServiceClient
 	SyncClient    pbDataSync.DataSyncServiceClient
 	RobotClient   pbApp.RobotServiceClient
-	HTTPClient    *http.Client   // used for downloading pcds of the current cloudslam session
+	HTTPClient    *http.Client // used for downloading pcds of the current cloudslam session
 	logger        logging.Logger
 }
 

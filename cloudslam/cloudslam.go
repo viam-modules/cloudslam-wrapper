@@ -157,7 +157,7 @@ func newSLAM(
 	if err != nil {
 		return nil, err
 	}
-	wrappedSLAM, err := slam.FromDependencies(deps, newConf.SLAMService)
+	wrappedSLAM, err := slam.FromProvider(deps, newConf.SLAMService)
 	if err != nil {
 		return nil, err
 	}
@@ -271,8 +271,8 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	if err != nil {
 		return err
 	}
-	if resp.SessionId != "" {
-		svc.activeJob.Store(&activeJobState{id: resp.SessionId})
+	if resp.GetSessionId() != "" {
+		svc.activeJob.Store(&activeJobState{id: resp.GetSessionId()})
 	}
 
 	svc.workers = goutils.NewBackgroundStoppableWorkers(svc.activeMappingSessionThread)
@@ -519,7 +519,7 @@ func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
 	filledPoints := int(fraction * numPoints)
 
 	pc := pointcloud.NewBasicEmpty()
-	for i := 0; i < filledPoints; i++ {
+	for i := range filledPoints {
 		angle := float64(i) / numPoints * 2 * math.Pi
 		x := radius * math.Cos(angle)
 		y := radius * math.Sin(angle)
