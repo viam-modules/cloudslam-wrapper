@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"strings"
 
 	"github.com/golang/geo/r3"
 	"github.com/montanaflynn/stats"
@@ -98,7 +99,9 @@ func (svc *cloudslamWrapper) uploadJpeg(
 		return "", errors.Wrap(err, "received error response while syncing thumbnail")
 	}
 
-	return res.GetBinaryDataId(), nil
+	// BinaryDataId is "org_id/location_id/file_id"; extract just the file_id for the thumbnail URL.
+	parts := strings.Split(res.GetBinaryDataId(), "/")
+	return parts[len(parts)-1], nil
 }
 
 // pcdToJpeg converts a pointcloud data into a jpeg image.
