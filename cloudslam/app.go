@@ -3,6 +3,7 @@ package cloudslam
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	pbPackage "go.viam.com/api/app/packages/v1"
 	pbApp "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/services/slam"
 	"go.viam.com/utils/rpc"
 )
 
@@ -99,6 +101,79 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 	defer res.Body.Close()
 
 	return io.ReadAll(res.Body)
+}
+
+// CheckSensorsDataCapture verifies that all of the provided sensors have at least one enabled
+// data capture method configured in the machine part's config. Returns an error listing any sensors
+// that are missing enabled capture.
+func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string, sensors []*cloudslamSensorInfo, logger logging.Logger) error {
+	req := pbApp.ConfigRequest{Id: partID}
+	resp, err := app.RobotClient.Config(ctx, &req)
+	if err != nil {
+		return err
+	}
+
+	// index sensor names for quick lookup, track which ones we've verified
+	pending := make(map[string]struct{}, len(sensors))
+	for _, s := range sensors {
+		pending[s.name] = struct{}{}
+	}
+
+	sensorTypes := make(map[string]slam.SensorType, len(sensors))
+	for _, s := range sensors {
+		sensorTypes[s.name] = s.sensorType
+	}
+
+	for _, comp := range resp.GetConfig().GetComponents() {
+		if _, ok := pending[comp.GetName()]; !ok {
+			continue
+		}
+		logger.Debugf("checking data capture for sensor %q (type %v)", comp.GetName(), sensorTypes[comp.GetName()])
+		for _, svcConfig := range comp.GetServiceConfigs() {
+			logger.Debugf("  service config type: %q, attributes: %v", svcConfig.GetType(), svcConfig.GetAttributes())
+		}
+		if hasEnabledDataCapture(comp, sensorTypes[comp.GetName()]) {
+			delete(pending, comp.GetName())
+		}
+	}
+
+	if len(pending) > 0 {
+		missing := make([]string, 0, len(pending))
+		for name := range pending {
+			missing = append(missing, name)
+		}
+		return fmt.Errorf("the following sensors do not have data capture enabled: %v", missing)
+	}
+	return nil
+}
+
+// hasEnabledDataCapture returns true if the component has an appropriate enabled capture method
+// in its data_manager service config. For cameras, NextPointCloud must be configured and enabled.
+// For other sensor types, any enabled capture method is sufficient.
+func hasEnabledDataCapture(comp *pbApp.ComponentConfig, sensorType slam.SensorType) bool {
+	for _, svcConfig := range comp.GetServiceConfigs() {
+		if svcConfig.GetType() != "rdk:service:data_manager" {
+			continue
+		}
+		captureMethods := svcConfig.GetAttributes().GetFields()["capture_methods"]
+		if captureMethods == nil {
+			continue
+		}
+		for _, method := range captureMethods.GetListValue().GetValues() {
+			fields := method.GetStructValue().GetFields()
+			if fields["disabled"].GetBoolValue() {
+				continue
+			}
+			if sensorType == slam.SensorTypeCamera {
+				if fields["method"].GetStringValue() == "NextPointCloud" {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Close closes the app clients.
