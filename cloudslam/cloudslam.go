@@ -69,12 +69,24 @@ type Config struct {
 	BaseURL              string  `json:"base_url,omitempty"` // this should only be used for testing in staging
 }
 
+// activeJobState holds the current job ID and when it was started.
+// startedAt is zero if the job was already running when the wrapper started up.
+type activeJobState struct {
+	id        string
+	startedAt time.Time
+}
+
+// updatingMapInfo holds the name and version of an existing map to continue from.
+type updatingMapInfo struct {
+	name    string
+	version string
+}
+
 type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	activeJob         atomic.Pointer[string]
-	jobStartTime      atomic.Pointer[time.Time]
+	activeJob         atomic.Pointer[activeJobState] // nil when no job is running
 	lastPose          atomic.Pointer[spatialmath.Pose]
 	lastPointCloudURL atomic.Pointer[string]
 	defaultpcd        []byte
@@ -90,9 +102,7 @@ type cloudslamWrapper struct {
 	viamVersion    string // optional cloudslam setting, describes which viam-server appimage to use(stable/latest/pr/pinned)
 	slamVersion    string // optional cloudslam setting, describes which cartographer appimage to use(stable/latest/pr/pinned)
 
-	// updating mode values.
-	updatingMapName    string // empty if slam is not in updating mode
-	updatingMapVersion string // empty if slam is not in updating mode
+	updatingMap *updatingMapInfo // nil if not in updating mode
 
 	// app clients for talking to app
 	app *AppClient
@@ -229,8 +239,7 @@ func newSLAM(
 func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	var err error
 	svc.lastPose.Store(&initPose)
-	initJob := ""
-	svc.activeJob.Store(&initJob)
+	svc.activeJob.Store(nil)
 	svc.lastPointCloudURL.Store(&initPCDURL)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
@@ -244,9 +253,12 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	// the webapp does not remove the package from the config when swapping from updating mode to mapping mode, so this code
 	// needs the extra check to ensure we only update maps when the user wants to.
 	if svc.partID != "" && mappingMode != slam.MappingModeNewMap {
-		svc.updatingMapName, svc.updatingMapVersion, err = svc.app.GetSLAMMapPackageOnRobot(svc.cancelCtx, svc.partID)
+		name, version, err := svc.app.GetSLAMMapPackageOnRobot(svc.cancelCtx, svc.partID)
 		if err != nil {
 			return err
+		}
+		if name != "" {
+			svc.updatingMap = &updatingMapInfo{name: name, version: version}
 		}
 	}
 
@@ -256,7 +268,9 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	if err != nil {
 		return err
 	}
-	svc.activeJob.Store(&resp.SessionId)
+	if resp.SessionId != "" {
+		svc.activeJob.Store(&activeJobState{id: resp.SessionId})
+	}
 
 	svc.workers = goutils.NewBackgroundStoppableWorkers(svc.activeMappingSessionThread)
 	return nil
@@ -269,14 +283,14 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			return
 		}
 
-		currJob := *svc.activeJob.Load()
+		job := svc.activeJob.Load()
 		// do nothing if no active jobs
-		if currJob == "" {
+		if job == nil {
 			continue
 		}
 
 		// get the most recent pointcloud and position if there is an active job
-		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: currJob}
+		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: job.id}
 		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
 		if err != nil {
 			svc.logger.Error(err)
@@ -298,9 +312,9 @@ func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap 
 	currMap := *svc.lastPointCloudURL.Load()
 
 	if currMap == "" {
-		startTime := svc.jobStartTime.Load()
-		if startTime != nil {
-			progressPCD, err := generateProgressRingPCD(time.Since(*startTime))
+		job := svc.activeJob.Load()
+		if job != nil && !job.startedAt.IsZero() {
+			progressPCD, err := generateProgressRingPCD(time.Since(job.startedAt))
 			if err != nil {
 				svc.logger.Warnf("failed to generate progress PCD: %v", err)
 				return toChunkedFunc(svc.defaultpcd), nil
@@ -325,7 +339,7 @@ func (svc *cloudslamWrapper) Properties(ctx context.Context) (slam.Properties, e
 }
 
 func (svc *cloudslamWrapper) Close(ctx context.Context) error {
-	if *svc.activeJob.Load() != "" {
+	if svc.activeJob.Load() != nil {
 		_, err := svc.StopJob(ctx)
 		if err != nil {
 			svc.logger.Errorf("error while stopping job: %v", err)
@@ -339,22 +353,20 @@ func (svc *cloudslamWrapper) Close(ctx context.Context) error {
 func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]interface{}) (map[string]interface{}, error) {
 	resp := map[string]interface{}{}
 	if name, ok := req[startJobKey]; ok {
-		if err := svc.app.CheckSensorsDataCapture(ctx, svc.partID, svc.sensors, svc.logger); err != nil {
+		if err := svc.app.CheckSensorsDataCapture(ctx, svc.partID, svc.sensors); err != nil {
 			return nil, err
 		}
 		jobID, isUpdating, err := svc.StartJob(svc.cancelCtx, name.(string))
 		if err != nil {
 			return nil, err
 		}
-		svc.activeJob.Store(&jobID)
-		startTime := time.Now()
-		svc.jobStartTime.Store(&startTime)
+		svc.activeJob.Store(&activeJobState{id: jobID, startedAt: time.Now()})
 		svc.lastPose.Store(&initPose)
 		svc.lastPointCloudURL.Store(&initPCDURL)
 
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
-				"Name = %v // Updating Version = %v", svc.updatingMapName, svc.updatingMapVersion)
+				"Name = %v // Updating Version = %v", svc.updatingMap.name, svc.updatingMap.version)
 		}
 		resp[startJobKey] = "Starting cloudslam session, the machine should appear in ~1 minute. Job ID: " + jobID
 	}
@@ -377,27 +389,26 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 
 // StopJob stops the current active cloudslam job.
 func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
-	// grab the active job but do not clear it from the module. that way users can still see the final map on the machine
-	currJob := *svc.activeJob.Load()
-	if currJob == "" {
+	job := svc.activeJob.Load()
+	if job == nil {
 		return "", errors.New("no active jobs")
 	}
 
-	req := &pbCloudSLAM.StopMappingSessionRequest{SessionId: currJob}
+	req := &pbCloudSLAM.StopMappingSessionRequest{SessionId: job.id}
 	resp, err := svc.app.CSClient.StopMappingSession(ctx, req)
 	if err != nil {
 		return "", err
 	}
 
 	metaResp, err := svc.app.CSClient.GetMappingSessionMetadataByID(ctx,
-		&pbCloudSLAM.GetMappingSessionMetadataByIDRequest{SessionId: currJob})
+		&pbCloudSLAM.GetMappingSessionMetadataByIDRequest{SessionId: job.id})
 	if err != nil {
-		svc.logger.Warnf("could not retrieve session metadata for job %s: %v", currJob, err)
+		svc.logger.Warnf("could not retrieve session metadata for job %s: %v", job.id, err)
 	} else if metaResp.GetSessionMetadata().GetEndStatus() == pbCloudSLAM.EndStatus_END_STATUS_FAIL {
 		return "", fmt.Errorf("cloudslam session failed: %s", metaResp.GetSessionMetadata().GetErrorMsg())
 	}
 
-	svc.jobStartTime.Store(nil)
+	svc.activeJob.Store(nil)
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
 	packageURL := svc.app.baseURL + "/robots?page=slam&name=" + packageName + "&version=" + resp.GetVersion()
 	return packageURL, nil
@@ -432,9 +443,9 @@ func (svc *cloudslamWrapper) StartJob(ctx context.Context, mapName string) (stri
 		Sensors:           svc.sensorInfoToProto(),
 		SlamConfig:        configParams,
 	}
-	if svc.updatingMapName != "" {
-		req.MapName = svc.updatingMapName
-		req.ExistingMapVersion = svc.updatingMapVersion
+	if svc.updatingMap != nil {
+		req.MapName = svc.updatingMap.name
+		req.ExistingMapVersion = svc.updatingMap.version
 		updatingMode = true
 	}
 	resp, err := svc.app.CSClient.StartMappingSession(ctx, req)

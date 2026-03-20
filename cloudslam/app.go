@@ -28,7 +28,8 @@ type AppClient struct {
 	PackageClient pbPackage.PackageServiceClient
 	SyncClient    pbDataSync.DataSyncServiceClient
 	RobotClient   pbApp.RobotServiceClient
-	HTTPClient    *http.Client // used for downloading pcds of the current cloudslam session
+	HTTPClient    *http.Client   // used for downloading pcds of the current cloudslam session
+	logger        logging.Logger
 }
 
 // CreateCloudSLAMClient creates a new grpc cloud configured to communicate with the robot service based on the cloud config given.
@@ -63,6 +64,7 @@ func CreateCloudSLAMClient(ctx context.Context, apiKey, apiKeyID, baseURL string
 		// This might be redundant with CloseIdleConnections in Close(),
 		// and unsure if the extra cost of redoing the TLS handshake makes this change worth it
 		HTTPClient: &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
+		logger:     logger,
 	}, nil
 }
 
@@ -106,7 +108,7 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 // CheckSensorsDataCapture verifies that all of the provided sensors have at least one enabled
 // data capture method configured in the machine part's config. Returns an error listing any sensors
 // that are missing enabled capture.
-func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string, sensors []*cloudslamSensorInfo, logger logging.Logger) error {
+func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string, sensors []*cloudslamSensorInfo) error {
 	req := pbApp.ConfigRequest{Id: partID}
 	resp, err := app.RobotClient.Config(ctx, &req)
 	if err != nil {
@@ -124,9 +126,9 @@ func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string
 		if _, ok := pending[comp.GetName()]; !ok {
 			continue
 		}
-		logger.Debugf("checking data capture for sensor %q (type %v)", comp.GetName(), sensorTypes[comp.GetName()])
+		app.logger.Debugf("checking data capture for sensor %q (type %v)", comp.GetName(), sensorTypes[comp.GetName()])
 		for _, svcConfig := range comp.GetServiceConfigs() {
-			logger.Debugf("  service config type: %q, attributes: %v", svcConfig.GetType(), svcConfig.GetAttributes())
+			app.logger.Debugf("  service config type: %q, attributes: %v", svcConfig.GetType(), svcConfig.GetAttributes())
 		}
 		if hasEnabledDataCapture(comp, sensorTypes[comp.GetName()]) {
 			delete(pending, comp.GetName())
