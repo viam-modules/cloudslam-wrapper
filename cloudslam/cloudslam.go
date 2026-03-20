@@ -89,6 +89,7 @@ type cloudslamWrapper struct {
 	activeJob         atomic.Pointer[activeJobState] // nil when no job is running
 	lastPose          atomic.Pointer[spatialmath.Pose]
 	lastPointCloudURL atomic.Pointer[string]
+	lastSessionErr    atomic.Pointer[string] // non-nil when the last session ended with a failure
 	defaultpcd        []byte
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
@@ -292,6 +293,19 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			continue
 		}
 
+		// Check session metadata to detect failures.
+		metaResp, err := svc.app.CSClient.GetMappingSessionMetadataByID(ctx,
+			&pbCloudSLAM.GetMappingSessionMetadataByIDRequest{SessionId: job.id})
+		if err != nil {
+			svc.logger.Error(err)
+		} else if metaResp.GetSessionMetadata().GetEndStatus() == pbCloudSLAM.EndStatus_END_STATUS_FAIL {
+			errMsg := metaResp.GetSessionMetadata().GetErrorMsg()
+			svc.logger.Errorf("cloudslam session %s failed: %s", job.id, errMsg)
+			svc.lastSessionErr.Store(&errMsg)
+			svc.activeJob.Store(nil)
+			continue
+		}
+
 		// get the most recent pointcloud and position if there is an active job
 		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: job.id}
 		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
@@ -312,6 +326,16 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
+	// If the last session failed, show a failure PCD regardless of map state.
+	if svc.lastSessionErr.Load() != nil {
+		failurePCD, err := generateFailurePCD()
+		if err != nil {
+			svc.logger.Warnf("failed to generate failure PCD: %v", err)
+			return toChunkedFunc(svc.defaultpcd), nil
+		}
+		return toChunkedFunc(failurePCD), nil
+	}
+
 	currMap := *svc.lastPointCloudURL.Load()
 
 	if currMap == "" {
@@ -366,6 +390,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		svc.activeJob.Store(&activeJobState{id: jobID, startedAt: time.Now()})
 		svc.lastPose.Store(&initPose)
 		svc.lastPointCloudURL.Store(&initPCDURL)
+		svc.lastSessionErr.Store(nil)
 
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
@@ -413,8 +438,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 
 	svc.activeJob.Store(nil)
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
-	packageURL := svc.app.baseURL + "/robots?page=slam&name=" + packageName + "&version=" + resp.GetVersion()
-	return packageURL, nil
+	return svc.app.SLAMMapURL(packageName, resp.GetVersion()), nil
 }
 
 // StartJob starts a cloudslam job with the requested map name. Currently assumes a set of config parameters.
@@ -541,6 +565,37 @@ func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
 	line2Y := line1Y - float64(fontRows+lineGapRows)*pixelSize
 
 	// Center each line horizontally. Width = (nChars×6 − 1) × pixelSize.
+	line1X := -float64(len(line1)*6-1) * pixelSize / 2
+	line2X := -float64(len(line2)*6-1) * pixelSize / 2
+
+	if err := addTextToPCD(pc, line1, line1X, line1Y, pixelSize); err != nil {
+		return nil, err
+	}
+	if err := addTextToPCD(pc, line2, line2X, line2Y, pixelSize); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := pointcloud.ToPCD(pc, &buf, pointcloud.PCDAscii); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// generateFailurePCD generates a point cloud displaying "SESSION FAILED" to indicate the mapping session ended with an error.
+func generateFailurePCD() ([]byte, error) {
+	const (
+		pixelSize   = 18.0 // mm per dot
+		line1       = "SESSION"
+		line2       = "FAILED"
+		fontRows    = 7
+		lineGapRows = 2
+	)
+
+	pc := pointcloud.NewBasicEmpty()
+
+	line1Y := float64(fontRows+lineGapRows+fontRows-1) / 2 * pixelSize
+	line2Y := line1Y - float64(fontRows+lineGapRows)*pixelSize
 	line1X := -float64(len(line1)*6-1) * pixelSize / 2
 	line2X := -float64(len(line2)*6-1) * pixelSize / 2
 
