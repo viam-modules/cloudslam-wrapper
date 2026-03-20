@@ -287,6 +287,10 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		arcProgressRingDuration = 5 * time.Minute
 		minArcPercent           = 0.02
 		maxArcPercent           = 1.0
+		arcLine1                = "WAITING FOR"
+		arcLine2                = "SESSION TO START"
+		arcFontRows             = 7
+		arcLineGapRows          = 2
 	)
 
 	var (
@@ -306,9 +310,19 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			continue
 		}
 
-		// reset arc state when a new job starts
+		// reset arc state when a new job starts, pre-populating the static text
 		if job.id != arcLastJobID {
 			arcPC = pointcloud.NewBasicEmpty()
+			line1Y := float64(arcFontRows+arcLineGapRows+arcFontRows-1) / 2 * pixelSize
+			line2Y := line1Y - float64(arcFontRows+arcLineGapRows)*pixelSize
+			line1X := -float64(len(arcLine1)*6-1) * pixelSize / 2
+			line2X := -float64(len(arcLine2)*6-1) * pixelSize / 2
+			if err := addTextToPCD(arcPC, arcLine1, line1X, line1Y); err != nil {
+				svc.logger.Warnf("failed to add arc text: %v", err)
+			}
+			if err := addTextToPCD(arcPC, arcLine2, line2X, line2Y); err != nil {
+				svc.logger.Warnf("failed to add arc text: %v", err)
+			}
 			arcLastFilled = 0
 			arcLastJobID = job.id
 			svc.currentPCD.Store(nil)
