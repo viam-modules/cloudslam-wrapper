@@ -7,12 +7,11 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"os"
 
 	pbCloudSLAM "go.viam.com/api/app/cloudslam/v1"
 	"go.viam.com/rdk/grpc"
