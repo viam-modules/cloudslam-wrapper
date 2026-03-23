@@ -106,7 +106,9 @@ func (app *AppClient) GetDataFromHTTP(ctx context.Context, dataURL string) ([]by
 // CheckSensorsDataCapture verifies that all of the provided sensors have at least one enabled
 // data capture method configured in the machine part's config. Returns an error listing any sensors
 // that are missing enabled capture.
-func (app *AppClient) CheckSensorsDataCapture(ctx context.Context, partID string, sensors []*cloudslamSensorInfo, logger logging.Logger) error {
+func (app *AppClient) CheckSensorsDataCapture(
+	ctx context.Context, partID string, sensors []*cloudslamSensorInfo, logger logging.Logger,
+) error {
 	req := pbApp.ConfigRequest{Id: partID}
 	resp, err := app.RobotClient.Config(ctx, &req)
 	if err != nil {
