@@ -285,6 +285,7 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		arcNumPoints            = 360
 		arcRadius               = 1000.0 // mm
 		arcProgressRingDuration = 5 * time.Minute
+		minArcPercent           = 0.02
 	)
 
 	var (
@@ -333,7 +334,7 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			}
 		} else if !job.startedAt.IsZero() {
 			// no map yet — incrementally build the progress arc
-			fraction := math.Max(0.02, math.Min(time.Since(job.startedAt).Seconds()/arcProgressRingDuration.Seconds(), 1.0))
+			fraction := math.Max(minArcPercent, math.Min(time.Since(job.startedAt).Seconds()/arcProgressRingDuration.Seconds(), 1.0))
 			filledPoints := int(fraction * arcNumPoints)
 			if filledPoints > arcLastFilled {
 				for i := arcLastFilled; i < filledPoints; i++ {
