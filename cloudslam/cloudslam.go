@@ -44,8 +44,7 @@ const (
 )
 
 var (
-	initPose   = spatialmath.NewZeroPose()
-	initPCDURL = ""
+	initPose = spatialmath.NewZeroPose()
 	//go:embed defaultpcd.pcd
 	f embed.FS
 
@@ -86,11 +85,10 @@ type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	activeJob         atomic.Pointer[activeJobState] // nil when no job is running
-	lastPose          atomic.Pointer[spatialmath.Pose]
-	lastPointCloudURL atomic.Pointer[string]
-	progressPCD       atomic.Pointer[[]byte] // incrementally built arc PCD; nil until first arc tick
-	defaultpcd        []byte
+	activeJob  atomic.Pointer[activeJobState] // nil when no job is running
+	lastPose   atomic.Pointer[spatialmath.Pose]
+	currentPCD atomic.Pointer[[]byte] // current PCD bytes owned by the background thread; nil until first tick
+	defaultpcd []byte
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
@@ -244,7 +242,7 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 	var err error
 	svc.lastPose.Store(&initPose)
 	svc.activeJob.Store(nil)
-	svc.lastPointCloudURL.Store(&initPCDURL)
+	svc.currentPCD.Store(nil)
 
 	// using this as a placeholder image. need to determine the right way to have the module use it
 	svc.defaultpcd, err = f.ReadFile(defaultPointCloudFilename)
@@ -311,11 +309,30 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			arcPC = pointcloud.NewBasicEmpty()
 			arcLastFilled = 0
 			arcLastJobID = job.id
-			svc.progressPCD.Store(nil)
+			svc.currentPCD.Store(nil)
 		}
 
-		// incrementally build the progress arc while waiting for the first real map
-		if *svc.lastPointCloudURL.Load() == "" && !job.startedAt.IsZero() {
+		// get the most recent pointcloud URL and position
+		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: job.id}
+		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
+		if err != nil {
+			svc.logger.Error(err)
+			continue
+		}
+
+		currPose := spatialmath.NewPoseFromProtobuf(resp.GetPose())
+		svc.lastPose.Store(&currPose)
+
+		if mapURL := resp.GetMapUrl(); mapURL != "" {
+			// real map available — download and store
+			pcdBytes, err := svc.app.GetDataFromHTTP(ctx, mapURL)
+			if err != nil {
+				svc.logger.Warnf("failed to download map PCD: %v", err)
+			} else {
+				svc.currentPCD.Store(&pcdBytes)
+			}
+		} else if !job.startedAt.IsZero() {
+			// no map yet — incrementally build the progress arc
 			fraction := math.Max(0.02, math.Min(time.Since(job.startedAt).Seconds()/arcProgressRingDuration.Seconds(), 1.0))
 			filledPoints := int(fraction * arcNumPoints)
 			if filledPoints > arcLastFilled {
@@ -334,24 +351,10 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 					svc.logger.Warnf("failed to encode progress arc PCD: %v", err)
 				} else {
 					b := buf.Bytes()
-					svc.progressPCD.Store(&b)
+					svc.currentPCD.Store(&b)
 				}
 			}
 		}
-
-		// get the most recent pointcloud and position if there is an active job
-		req := &pbCloudSLAM.GetMappingSessionPointCloudRequest{SessionId: job.id}
-		resp, err := svc.app.CSClient.GetMappingSessionPointCloud(ctx, req)
-		if err != nil {
-			svc.logger.Error(err)
-			continue
-		}
-
-		currPose := spatialmath.NewPoseFromProtobuf(resp.GetPose())
-
-		svc.lastPose.Store(&currPose)
-		mapURL := resp.GetMapUrl()
-		svc.lastPointCloudURL.Store(&mapURL)
 	}
 }
 
@@ -360,19 +363,10 @@ func (svc *cloudslamWrapper) Position(ctx context.Context) (spatialmath.Pose, er
 }
 
 func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap bool) (func() ([]byte, error), error) {
-	currMap := *svc.lastPointCloudURL.Load()
-
-	if currMap == "" {
-		if pcd := svc.progressPCD.Load(); pcd != nil {
-			return toChunkedFunc(*pcd), nil
-		}
-		return toChunkedFunc(svc.defaultpcd), nil
+	if pcd := svc.currentPCD.Load(); pcd != nil {
+		return toChunkedFunc(*pcd), nil
 	}
-	pcdBytes, err := svc.app.GetDataFromHTTP(ctx, currMap)
-	if err != nil {
-		return nil, err
-	}
-	return toChunkedFunc(pcdBytes), nil
+	return toChunkedFunc(svc.defaultpcd), nil
 }
 
 func (svc *cloudslamWrapper) InternalState(ctx context.Context) (func() ([]byte, error), error) {
@@ -407,8 +401,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		}
 		svc.activeJob.Store(&activeJobState{id: jobID, startedAt: time.Now()})
 		svc.lastPose.Store(&initPose)
-		svc.lastPointCloudURL.Store(&initPCDURL)
-		svc.progressPCD.Store(nil)
+		svc.currentPCD.Store(nil)
 
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
