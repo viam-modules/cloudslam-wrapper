@@ -444,6 +444,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 				"Name = %v // Updating Version = %v", svc.updatingMap.name, svc.updatingMap.version)
 		}
 		resp[startJobKey] = "Starting cloudslam session, the machine should appear in ~1 minute. Job ID: " + jobID
+		resp["tip"] = "if the map does not change try refreshing the page"
 	}
 	if _, ok := req[stopJobKey]; ok {
 		packageURL, err := svc.StopJob(ctx)
@@ -604,7 +605,6 @@ func generateFailurePCD() ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
-
 
 // toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
 func toChunkedFunc(b []byte) func() ([]byte, error) {
