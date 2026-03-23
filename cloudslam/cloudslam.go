@@ -89,6 +89,7 @@ type cloudslamWrapper struct {
 	activeJob         atomic.Pointer[activeJobState] // nil when no job is running
 	lastPose          atomic.Pointer[spatialmath.Pose]
 	lastPointCloudURL atomic.Pointer[string]
+	progressPCD       atomic.Pointer[[]byte] // incrementally built arc PCD; nil until first arc tick
 	defaultpcd        []byte
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
@@ -280,7 +281,20 @@ func (svc *cloudslamWrapper) initialize(mappingMode slam.MappingMode) error {
 }
 
 // activeMappingSessionThread polls app to retrieve the current map and pose of the cloudslam session.
+// It also incrementally builds the progress arc PCD while waiting for the first real map.
 func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
+	const (
+		arcNumPoints            = 360
+		arcRadius               = 1000.0 // mm
+		arcProgressRingDuration = 5 * time.Minute
+	)
+
+	var (
+		arcPC         = pointcloud.NewBasicEmpty()
+		arcLastFilled int
+		arcLastJobID  string
+	)
+
 	for {
 		if !goutils.SelectContextOrWait(ctx, time.Duration(1000.*mapRefreshRate)*time.Millisecond) {
 			return
@@ -290,6 +304,39 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		// do nothing if no active jobs
 		if job == nil {
 			continue
+		}
+
+		// reset arc state when a new job starts
+		if job.id != arcLastJobID {
+			arcPC = pointcloud.NewBasicEmpty()
+			arcLastFilled = 0
+			arcLastJobID = job.id
+			svc.progressPCD.Store(nil)
+		}
+
+		// incrementally build the progress arc while waiting for the first real map
+		if *svc.lastPointCloudURL.Load() == "" && !job.startedAt.IsZero() {
+			fraction := math.Max(0.02, math.Min(time.Since(job.startedAt).Seconds()/arcProgressRingDuration.Seconds(), 1.0))
+			filledPoints := int(fraction * arcNumPoints)
+			if filledPoints > arcLastFilled {
+				for i := arcLastFilled; i < filledPoints; i++ {
+					angle := float64(i) / arcNumPoints * 2 * math.Pi
+					x := arcRadius * math.Cos(angle)
+					y := arcRadius * math.Sin(angle)
+					if err := arcPC.Set(r3.Vector{X: x, Y: y, Z: 0}, pointcloud.NewBasicData()); err != nil {
+						svc.logger.Warnf("failed to add arc point: %v", err)
+						break
+					}
+				}
+				arcLastFilled = filledPoints
+				var buf bytes.Buffer
+				if err := pointcloud.ToPCD(arcPC, &buf, pointcloud.PCDBinary); err != nil {
+					svc.logger.Warnf("failed to encode progress arc PCD: %v", err)
+				} else {
+					b := buf.Bytes()
+					svc.progressPCD.Store(&b)
+				}
+			}
 		}
 
 		// get the most recent pointcloud and position if there is an active job
@@ -316,14 +363,8 @@ func (svc *cloudslamWrapper) PointCloudMap(ctx context.Context, returnEditedMap 
 	currMap := *svc.lastPointCloudURL.Load()
 
 	if currMap == "" {
-		job := svc.activeJob.Load()
-		if job != nil && !job.startedAt.IsZero() {
-			progressPCD, err := generateProgressRingPCD(time.Since(job.startedAt))
-			if err != nil {
-				svc.logger.Warnf("failed to generate progress PCD: %v", err)
-				return toChunkedFunc(svc.defaultpcd), nil
-			}
-			return toChunkedFunc(progressPCD), nil
+		if pcd := svc.progressPCD.Load(); pcd != nil {
+			return toChunkedFunc(*pcd), nil
 		}
 		return toChunkedFunc(svc.defaultpcd), nil
 	}
@@ -367,6 +408,7 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		svc.activeJob.Store(&activeJobState{id: jobID, startedAt: time.Now()})
 		svc.lastPose.Store(&initPose)
 		svc.lastPointCloudURL.Store(&initPCDURL)
+		svc.progressPCD.Store(nil)
 
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
@@ -492,48 +534,17 @@ func (svc *cloudslamWrapper) sensorInfoToProto() []*pbCloudSLAM.SensorInfo {
 	return sensorsProto
 }
 
-// ParseSensorsForPackage parses the sensors list not a list of sensor structs to add to the map package metadata.
+// ParseSensorsForPackage parses the sensors list into a list of sensor structs to add to the map package metadata.
 func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
 	sensorMetadata := []interface{}{}
-	for _, sensor := range svc.sensors {
+	for _, s := range svc.sensorInfoToProto() {
 		sensorMetadata = append(sensorMetadata, map[string]interface{}{
-			"name":         sensor.name,
-			"type":         sensor.sensorType.String(),
-			"frequency_hz": strconv.FormatFloat(sensor.freq, 'f', -1, 64),
+			"name":         s.GetSourceComponentName(),
+			"type":         s.GetType(),
+			"frequency_hz": s.GetDataFrequencyHz(),
 		})
 	}
 	return sensorMetadata, nil
-}
-
-// generateProgressRingPCD generates a point cloud of a progress arc indicating elapsed time.
-// The arc grows clockwise from 0 to a full circle over progressRingDuration, giving the user
-// visual feedback while waiting for the first cloudslam map to appear.
-func generateProgressRingPCD(elapsed time.Duration) ([]byte, error) {
-	const (
-		numPoints            = 360
-		radius               = 1000.0 // mm
-		progressRingDuration = 5 * time.Minute
-	)
-
-	// Always show at least a small arc so the user sees something immediately.
-	fraction := math.Max(0.02, math.Min(elapsed.Seconds()/progressRingDuration.Seconds(), 1.0))
-	filledPoints := int(fraction * numPoints)
-
-	pc := pointcloud.NewBasicEmpty()
-	for i := 0; i < filledPoints; i++ {
-		angle := float64(i) / numPoints * 2 * math.Pi
-		x := radius * math.Cos(angle)
-		y := radius * math.Sin(angle)
-		if err := pc.Set(r3.Vector{X: x, Y: y, Z: 0}, pointcloud.NewBasicData()); err != nil {
-			return nil, err
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := pointcloud.ToPCD(pc, &buf, pointcloud.PCDAscii); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
