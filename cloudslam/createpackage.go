@@ -54,8 +54,7 @@ func (svc *cloudslamWrapper) UploadPackage(ctx context.Context, mapName string) 
 	}
 
 	// return a link for where to find the package
-	packageURL := svc.app.baseURL + "/robots?name=" + mapName + "&version=" + packageVersion
-	return packageURL, nil
+	return svc.app.SLAMMapURL(mapName, packageVersion), nil
 }
 
 // uploadArchive creates a tar/archive of the SLAM map and uploads it to app using the package APIs.

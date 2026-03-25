@@ -85,10 +85,11 @@ type cloudslamWrapper struct {
 	resource.Named
 	resource.AlwaysRebuild
 
-	activeJob  atomic.Pointer[activeJobState] // nil when no job is running
-	lastPose   atomic.Pointer[spatialmath.Pose]
-	currentPCD atomic.Pointer[[]byte] // current PCD bytes owned by the background thread; nil until first tick
-	defaultpcd []byte
+	activeJob      atomic.Pointer[activeJobState] // nil when no job is running
+	lastPose       atomic.Pointer[spatialmath.Pose]
+	currentPCD     atomic.Pointer[[]byte] // current PCD bytes owned by the background thread; nil until first tick
+	lastSessionErr atomic.Pointer[string] // non-nil when the last session ended with a failure
+	defaultpcd     []byte
 
 	slamService slam.Service           // the slam service that cloudslam will wrap
 	sensors     []*cloudslamSensorInfo // sensors currently in use by the slam service
@@ -287,6 +288,10 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 		arcProgressRingDuration = 5 * time.Minute
 		minArcPercent           = 0.02
 		maxArcPercent           = 1.0
+		arcLine1                = "WAITING FOR"
+		arcLine2                = "SESSION TO START"
+		arcFontRows             = 7
+		arcLineGapRows          = 2
 	)
 
 	var (
@@ -306,12 +311,40 @@ func (svc *cloudslamWrapper) activeMappingSessionThread(ctx context.Context) {
 			continue
 		}
 
-		// reset arc state when a new job starts
+		// reset arc state when a new job starts, pre-populating the static text
 		if job.id != arcLastJobID {
 			arcPC = pointcloud.NewBasicEmpty()
+			line1Y := float64(arcFontRows+arcLineGapRows+arcFontRows-1) / 2 * pixelSize
+			line2Y := line1Y - float64(arcFontRows+arcLineGapRows)*pixelSize
+			line1X := -float64(len(arcLine1)*6-1) * pixelSize / 2
+			line2X := -float64(len(arcLine2)*6-1) * pixelSize / 2
+			if err := addTextToPCD(arcPC, arcLine1, line1X, line1Y); err != nil {
+				svc.logger.Warnf("failed to add arc text: %v", err)
+			}
+			if err := addTextToPCD(arcPC, arcLine2, line2X, line2Y); err != nil {
+				svc.logger.Warnf("failed to add arc text: %v", err)
+			}
 			arcLastFilled = 0
 			arcLastJobID = job.id
 			svc.currentPCD.Store(nil)
+		}
+
+		// Check session metadata to detect failures.
+		metaResp, err := svc.app.CSClient.GetMappingSessionMetadataByID(ctx,
+			&pbCloudSLAM.GetMappingSessionMetadataByIDRequest{SessionId: job.id})
+		if err != nil {
+			svc.logger.Error(err)
+		} else if metaResp.GetSessionMetadata().GetEndStatus() == pbCloudSLAM.EndStatus_END_STATUS_FAIL {
+			errMsg := metaResp.GetSessionMetadata().GetErrorMsg()
+			svc.logger.Errorf("cloudslam session %s failed: %s", job.id, errMsg)
+			svc.lastSessionErr.Store(&errMsg)
+			if failurePCD, err := generateFailurePCD(); err != nil {
+				svc.logger.Warnf("failed to generate failure PCD: %v", err)
+			} else {
+				svc.currentPCD.Store(&failurePCD)
+			}
+			svc.activeJob.Store(nil)
+			continue
 		}
 
 		// get the most recent pointcloud URL and position
@@ -404,12 +437,14 @@ func (svc *cloudslamWrapper) DoCommand(ctx context.Context, req map[string]inter
 		svc.activeJob.Store(&activeJobState{id: jobID, startedAt: time.Now()})
 		svc.lastPose.Store(&initPose)
 		svc.currentPCD.Store(nil)
+		svc.lastSessionErr.Store(nil)
 
 		if isUpdating {
 			resp[updatingModeKey] = fmt.Sprintf("slam map found on machine, starting cloudslam in updating mode. Map "+
 				"Name = %v // Updating Version = %v", svc.updatingMap.name, svc.updatingMap.version)
 		}
 		resp[startJobKey] = "Starting cloudslam session, the machine should appear in ~1 minute. Job ID: " + jobID
+		resp["tip"] = "if the map does not change try refreshing the page"
 	}
 	if _, ok := req[stopJobKey]; ok {
 		packageURL, err := svc.StopJob(ctx)
@@ -451,8 +486,7 @@ func (svc *cloudslamWrapper) StopJob(ctx context.Context) (string, error) {
 
 	svc.activeJob.Store(nil)
 	packageName := strings.Split(resp.GetPackageId(), "/")[1]
-	packageURL := svc.app.baseURL + "/robots?page=slam&name=" + packageName + "&version=" + resp.GetVersion()
-	return packageURL, nil
+	return svc.app.SLAMMapURL(packageName, resp.GetVersion()), nil
 }
 
 // StartJob starts a cloudslam job with the requested map name. Currently assumes a set of config parameters.
@@ -540,6 +574,36 @@ func (svc *cloudslamWrapper) ParseSensorsForPackage() ([]interface{}, error) {
 		})
 	}
 	return sensorMetadata, nil
+}
+
+// generateFailurePCD generates a point cloud displaying "SESSION FAILED" to indicate the mapping session ended with an error.
+func generateFailurePCD() ([]byte, error) {
+	const (
+		line1       = "SESSION"
+		line2       = "FAILED"
+		fontRows    = 7
+		lineGapRows = 2
+	)
+
+	pc := pointcloud.NewBasicEmpty()
+
+	line1Y := float64(fontRows+lineGapRows+fontRows-1) / 2 * pixelSize
+	line2Y := line1Y - float64(fontRows+lineGapRows)*pixelSize
+	line1X := -float64(len(line1)*6-1) * pixelSize / 2
+	line2X := -float64(len(line2)*6-1) * pixelSize / 2
+
+	if err := addTextToPCD(pc, line1, line1X, line1Y); err != nil {
+		return nil, err
+	}
+	if err := addTextToPCD(pc, line2, line2X, line2Y); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := pointcloud.ToPCD(pc, &buf, pointcloud.PCDBinary); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // toChunkedFunc takes binary data and wraps it in a helper function that converts it into chunks for streaming APIs.
